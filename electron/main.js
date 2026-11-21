@@ -1,18 +1,41 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } = require("electron");
 const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const APP_ROOT = path.resolve(__dirname, "..");
 const CLI = path.join(APP_ROOT, "bin", "release-board");
+const ICON_DIR = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), "release-board");
 const TASK_TIMEOUT = 6 * 60 * 60 * 1000;
+const screenshotTarget = (process.argv.find((arg) => arg.startsWith("--screenshot=")) || "").split("=", 2)[1] || "";
+const screenshotView = (process.argv.find((arg) => arg.startsWith("--view=")) || "").split("=", 2)[1] || "";
+const screenshotClick = (process.argv.find((arg) => arg.startsWith("--click=")) || "").split("=", 2)[1] || "";
 
 // The board is a light 2D interface; software rendering avoids Wayland/Vulkan
 // and GPU shader-cache failures on NVIDIA desktops.
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
+
+function iconPath(dark = nativeTheme.shouldUseDarkColors) {
+  return path.join(APP_ROOT, "assets", dark ? "release-board.png" : "release-board-light.png");
+}
+
+function syncLauncherIcon(dark = nativeTheme.shouldUseDarkColors) {
+  try {
+    const suffix = dark ? "dark" : "light";
+    const installed = path.join(ICON_DIR, `release-board-${suffix}.png`);
+    const target = fs.existsSync(installed) ? installed : iconPath(dark);
+    const link = path.join(ICON_DIR, "icon.png");
+    fs.mkdirSync(ICON_DIR, { recursive: true });
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(target, link);
+  } catch {
+    // The window icon still follows the theme if the launcher link fails.
+  }
+}
 const running = new Map();
 let mainWindow = null;
 let configCache = null;
@@ -89,6 +112,7 @@ function createWindow() {
     minHeight: 640,
     backgroundColor: "#071417",
     title: "Release Board",
+    icon: iconPath(),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -99,7 +123,34 @@ function createWindow() {
     },
   });
   mainWindow.removeMenu();
-  mainWindow.loadFile(path.join(APP_ROOT, "renderer", "index.html"));
+  mainWindow.loadFile(path.join(APP_ROOT, "renderer", "index.html")).then(() => {
+    if (!screenshotTarget) return;
+    setTimeout(async () => {
+      const view = screenshotView.replace(/[^a-z]/g, "");
+      if (view) {
+        try {
+          await mainWindow.webContents.executeJavaScript(
+            `document.querySelector('[data-view="${view}"]')?.click(); true`
+          );
+        } catch {
+          // Screenshot only.
+        }
+      }
+      if (screenshotClick) {
+        try {
+          await mainWindow.webContents.executeJavaScript(
+            `document.querySelector(${JSON.stringify(screenshotClick)})?.click(); true`
+          );
+        } catch {
+          // Screenshot only.
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, screenshotClick ? 5000 : 1200));
+      const image = await mainWindow.webContents.capturePage();
+      fs.writeFileSync(screenshotTarget, image.toPNG());
+      app.quit();
+    }, 8000);
+  });
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (safeExternal(url)) shell.openExternal(url);
@@ -229,42 +280,12 @@ function registerIpc() {
 
 app.whenReady().then(async () => {
   registerIpc();
+  syncLauncherIcon();
+  nativeTheme.on("updated", () => {
+    syncLauncherIcon();
+    if (mainWindow) mainWindow.setIcon(iconPath());
+  });
   createWindow();
-
-  const shotArg = process.argv.find((arg) => arg.startsWith("--screenshot="));
-  if (shotArg) {
-    const target = shotArg.split("=", 2)[1];
-    const viewArg = process.argv.find((arg) => arg.startsWith("--view="));
-    const view = viewArg ? viewArg.split("=", 2)[1].replace(/[^a-z]/g, "") : "";
-    const clickArg = process.argv.find((arg) => arg.startsWith("--click="));
-    const click = clickArg ? clickArg.split("=", 2)[1] : "";
-    mainWindow.webContents.once("did-finish-load", () => {
-      setTimeout(async () => {
-        if (view) {
-          try {
-            await mainWindow.webContents.executeJavaScript(
-              `document.querySelector('[data-view="${view}"]')?.click(); true`
-            );
-          } catch {
-            // Screenshot only.
-          }
-        }
-        if (click) {
-          try {
-            await mainWindow.webContents.executeJavaScript(
-              `document.querySelector(${JSON.stringify(click)})?.click(); true`
-            );
-          } catch {
-            // Screenshot only.
-          }
-        }
-        await new Promise((resolve) => setTimeout(resolve, click ? 5000 : 1200));
-        const image = await mainWindow.webContents.capturePage();
-        fs.writeFileSync(target, image.toPNG());
-        app.quit();
-      }, 8000);
-    });
-  }
 });
 
 app.on("window-all-closed", () => app.quit());

@@ -3,5 +3,6 @@
 set -euo pipefail
 rm -f "$HOME/.local/bin/release-board"
 rm -f "$HOME/.local/share/applications/release-board.desktop"
+rm -rf "$HOME/.local/share/release-board"
 echo "removed CLI link and desktop entry"
 echo "kept: ~/.config/release-board and release/"
