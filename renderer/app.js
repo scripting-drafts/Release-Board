@@ -659,7 +659,9 @@ async function refresh(withLaunchpad = false, forceConfig = false) {
     state.board = boardResult.data;
     if (configResult?.ok && configResult.data) state.config = configResult.data;
     renderSidebar();
-    renderView(state.view);
+    // Keep the Settings form intact while it is being edited. Navigating back
+    // to Settings, saving, or pressing Reload re-renders it explicitly.
+    if (state.view !== "settings") renderView(state.view);
   } finally {
     refreshButton.disabled = false;
   }
