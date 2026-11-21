@@ -17,6 +17,7 @@ const screenshotClick = (process.argv.find((arg) => arg.startsWith("--click=")) 
 // The board is a light 2D interface; software rendering avoids Wayland/Vulkan
 // and GPU shader-cache failures on NVIDIA desktops.
 app.disableHardwareAcceleration();
+app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
 
 function iconPath(dark = nativeTheme.shouldUseDarkColors) {
