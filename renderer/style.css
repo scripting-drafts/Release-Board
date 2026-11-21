@@ -707,12 +707,25 @@ input[type="text"],
 input[type="number"],
 select {
   width: 100%;
-  background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 9px;
   padding: 9px 10px;
   color: var(--text);
   outline: none;
+}
+
+input[type="text"],
+input[type="number"] {
+  background: var(--panel-2);
+}
+
+select {
+  background: var(--panel);
+}
+
+select option {
+  background: var(--panel);
+  color: var(--text);
 }
 
 input:focus,
