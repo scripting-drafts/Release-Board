@@ -73,20 +73,7 @@ function setView(view) {
   renderView(view);
 }
 
-function renderRootList() {
-  const node = document.getElementById("root-list");
-  clear(node);
-  const roots = state.board?.roots || [];
-  for (const root of roots) {
-    const row = h("div", "root-row");
-    row.append(h("span", `dot ${rootHealth(root)}`));
-    const label = h("span", "", root.configuredName || root.name || "root");
-    label.title = root.path || "";
-    row.append(label);
-    row.append(h("span", "meta", root.isGit ? (root.clean ? "clean" : `${root.dirty} dirty`) : "missing"));
-    node.append(row);
-  }
-  if (!roots.length) node.append(h("div", "muted small", "No roots configured."));
+function renderSidebar() {
   const ledger = state.board?.config?.ledger || "";
   const ledgerNode = document.getElementById("ledger-path");
   ledgerNode.textContent = ledger ? `Ledger · ${ledger.split("/").slice(-2).join("/")}` : "";
@@ -671,7 +658,7 @@ async function refresh(withLaunchpad = false, forceConfig = false) {
     }
     state.board = boardResult.data;
     if (configResult?.ok && configResult.data) state.config = configResult.data;
-    renderRootList();
+    renderSidebar();
     renderView(state.view);
   } finally {
     refreshButton.disabled = false;

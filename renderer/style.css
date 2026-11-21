@@ -123,64 +123,6 @@ button {
   margin-top: 2px;
 }
 
-.sidebar-label {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  margin: 0 8px 8px;
-}
-
-.root-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 20px;
-  max-height: 190px;
-  overflow: auto;
-}
-
-.root-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
-  border-radius: 9px;
-  font-size: 13px;
-  color: var(--text);
-  background: transparent;
-  border: 1px solid transparent;
-}
-
-.root-row .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--muted);
-  flex: 0 0 auto;
-}
-
-.root-row .dot.good {
-  background: var(--teal);
-  box-shadow: 0 0 0 4px var(--teal-soft);
-}
-
-.root-row .dot.warn {
-  background: var(--amber);
-  box-shadow: 0 0 0 4px var(--amber-soft);
-}
-
-.root-row .dot.bad {
-  background: var(--red);
-  box-shadow: 0 0 0 4px var(--red-soft);
-}
-
-.root-row .meta {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .nav {
   display: flex;
   flex-direction: column;
