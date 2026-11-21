@@ -112,7 +112,7 @@ function createWindow() {
     height: 860,
     minWidth: 980,
     minHeight: 640,
-    backgroundColor: "#071417",
+    backgroundColor: "#070c17",
     title: "Release Board",
     icon: iconPath(),
     show: false,
