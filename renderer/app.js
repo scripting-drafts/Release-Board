@@ -9,12 +9,18 @@ const state = {
   taskId: null,
   taskRoot: "",
   taskLog: [],
+  compareRoot: "",
+  compareOrigin: "main",
+  compareData: null,
+  compareLoading: false,
+  compareError: "",
   timer: null,
 };
 
 const titles = {
   overview: ["Overview", "Release state across every configured root"],
   git: ["Git inspector", "Local branches, remote tracking and commit divergence"],
+  compare: ["Source diff", "Local Sources → Origin (main) → Released Sources"],
   packaging: ["Packaging inspector", "Debian metadata, versions, tags and signing preflight"],
   launchpad: ["Launchpad monitor", "Upload, build and publication state per series"],
   trace: ["Release traceability", "Signed tags, embedded provenance and the release ledger"],
@@ -286,6 +292,208 @@ function renderGit() {
     grid.append(card);
   }
   node.append(grid);
+}
+
+function compareStatusKind(status) {
+  if (status === "A" || status === "C") return "good";
+  if (status === "M" || status === "T" || status === "U") return "warn";
+  if (status === "D") return "bad";
+  if (status === "R") return "info";
+  return "";
+}
+
+function fileLabel(count) {
+  return count === 1 ? "1 file" : `${count} files`;
+}
+
+function countTreeFiles(nodes) {
+  return (nodes || []).reduce((total, node) => {
+    return total + (node.type === "dir" ? countTreeFiles(node.children) : 1);
+  }, 0);
+}
+
+function renderFileTree(nodes, depth = 0) {
+  const box = h("div", "file-tree");
+  for (const node of nodes || []) {
+    if (node.type === "dir") {
+      const details = h("details", "tree-dir");
+      if (depth < 1) details.open = true;
+      const summary = h("summary", "tree-dir-row");
+      summary.append(h("span", "mono tree-name", `${node.name}/`));
+      summary.append(h("span", "muted small", fileLabel(countTreeFiles(node.children))));
+      details.append(summary, renderFileTree(node.children, depth + 1));
+      box.append(details);
+    } else {
+      const row = h("div", "tree-file");
+      row.append(pill(node.status, compareStatusKind(node.status)));
+      const name = h("span", "mono tree-name", node.name);
+      name.title = node.path;
+      row.append(name);
+      if (node.oldPath) row.append(h("span", "muted small", `← ${node.oldPath}`));
+      row.append(h("span", "muted small tree-path", node.path));
+      box.append(row);
+    }
+  }
+  return box;
+}
+
+function compareRefCard(label, ref, extra) {
+  const card = h("div", "card");
+  const head = h("div", "card-head");
+  const left = h("div");
+  left.append(h("h3", "", label));
+  left.append(h("div", "card-sub", ref.ref));
+  head.append(left);
+  if (extra) head.append(extra);
+  else head.append(pill(ref.short, "info"));
+  card.append(head);
+  card.append(
+    kv([
+      ["Commit", ref.short],
+      ["Subject", ref.subject || "—"],
+      ["Date", ref.date || "—"],
+    ])
+  );
+  return card;
+}
+
+function renderCompare() {
+  const node = document.getElementById("view-compare");
+  clear(node);
+  const roots = state.config?.roots || [];
+  if (!roots.length) {
+    node.append(h("div", "card muted", "No roots configured."));
+    return;
+  }
+  if (!state.compareRoot || !roots.some((root) => root.path === state.compareRoot)) {
+    state.compareRoot = roots[0].path;
+    state.compareData = null;
+    state.compareError = "";
+  }
+
+  const toolbar = h("div", "toolbar");
+  const label = h("label", "field");
+  label.append(h("span", "", "Project root"));
+  const select = h("select");
+  for (const root of roots) {
+    const option = h("option", "", `${root.name} · ${root.path}`);
+    option.value = root.path;
+    select.append(option);
+  }
+  select.value = state.compareRoot;
+  select.addEventListener("change", () => {
+    state.compareRoot = select.value;
+    state.compareData = null;
+    state.compareError = "";
+    renderCompare();
+  });
+  label.append(select);
+  toolbar.append(label);
+
+  const originLabel = h("label", "field");
+  originLabel.append(h("span", "", "Origin branch"));
+  const originSelect = h("select");
+  const remoteRoot = (state.board?.roots || []).find((root) => root.path === state.compareRoot);
+  const branches = new Set(["main"]);
+  for (const branch of remoteRoot?.branches?.remote || []) {
+    if (branch.name) branches.add(branch.name);
+  }
+  for (const branch of [...branches].sort()) {
+    const option = h("option", "", branch);
+    option.value = branch;
+    originSelect.append(option);
+  }
+  if (!branches.has(state.compareOrigin)) state.compareOrigin = "main";
+  originSelect.value = state.compareOrigin;
+  originSelect.addEventListener("change", () => {
+    state.compareOrigin = originSelect.value;
+    state.compareData = null;
+    state.compareError = "";
+    renderCompare();
+  });
+  originLabel.append(originSelect);
+  toolbar.append(originLabel);
+
+  const recompute = button("Recompute", "ghost", () => {
+    state.compareData = null;
+    state.compareError = "";
+    renderCompare();
+  });
+  const open = button("Open in Zed", "primary", () => loadCompare(state.compareRoot, true));
+  toolbar.append(recompute, open);
+  node.append(toolbar);
+
+  if (state.compareLoading) {
+    node.append(h("div", "card muted", "Comparing local, origin and released trees…"));
+    return;
+  }
+  if (state.compareError) {
+    node.append(h("div", "card issue bad", state.compareError));
+    return;
+  }
+  if (!state.compareData) {
+    loadCompare(state.compareRoot, false);
+    return;
+  }
+
+  const data = state.compareData;
+  if (data.warnings?.length) {
+    const noticeCard = h("div", "card");
+    for (const warning of data.warnings) noticeCard.append(h("div", "issue warn", warning));
+    node.append(noticeCard);
+  }
+
+  const chain = h("div", "grid cards");
+  chain.append(compareRefCard("Local Sources", data.refs.local, data.dirty ? pill("dirty", "warn") : null));
+  chain.append(compareRefCard("Origin", data.refs.origin));
+  chain.append(compareRefCard("Released Sources", data.refs.released));
+  node.append(chain);
+
+  for (const comparison of data.comparisons) {
+    const card = h("div", "card");
+    const head = h("div", "card-head");
+    const left = h("div");
+    left.append(h("h3", "", comparison.label));
+    left.append(
+      h(
+        "div",
+        "card-sub",
+        `${comparison.from.ref} → ${comparison.to.ref} · ahead ${comparison.ahead} / behind ${comparison.behind}`
+      )
+    );
+    head.append(left, pill(fileLabel(comparison.fileCount), comparison.fileCount ? "info" : "good"));
+    card.append(head);
+    if (!comparison.files?.length) {
+      card.append(h("div", "card-sub", "No differences."));
+    } else {
+      card.append(renderFileTree(comparison.tree));
+    }
+    node.append(card);
+  }
+}
+
+async function loadCompare(root, openInZed) {
+  if (!root || state.compareLoading) return;
+  const origin = state.compareOrigin || "main";
+  state.compareLoading = true;
+  state.compareError = "";
+  renderCompare();
+  try {
+    const result = openInZed
+      ? await api.compareOpen({ root, origin })
+      : await api.compare({ root, origin });
+    if (state.compareRoot !== root) return;
+    if (!result.ok || !result.data) {
+      state.compareError = result.error || "comparison failed";
+      state.compareData = null;
+      return;
+    }
+    state.compareData = result.data;
+    if (openInZed) notice("Opened source tree diff in Zed.");
+  } finally {
+    state.compareLoading = false;
+    renderCompare();
+  }
 }
 
 function renderPackaging() {
@@ -647,6 +855,7 @@ function rootEditRow(name, path) {
 function renderView(view) {
   if (view === "overview") renderOverview();
   else if (view === "git") renderGit();
+  else if (view === "compare") renderCompare();
   else if (view === "packaging") renderPackaging();
   else if (view === "launchpad") renderLaunchpad();
   else if (view === "trace") renderTrace();

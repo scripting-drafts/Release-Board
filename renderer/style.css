@@ -544,6 +544,73 @@ tr:last-child td {
   gap: 6px;
 }
 
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tree-dir {
+  margin: 0;
+}
+
+.tree-dir > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+
+.tree-dir > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tree-dir > summary:hover,
+.tree-file:hover {
+  background: var(--panel-2);
+}
+
+.tree-dir:not([open]) > summary .tree-name::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+.tree-dir[open] > summary .tree-name::before {
+  content: "▾ ";
+  color: var(--muted);
+}
+
+.tree-dir > .file-tree {
+  margin-left: 18px;
+  border-left: 1px solid var(--line-soft);
+  padding-left: 9px;
+}
+
+.tree-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  min-width: 0;
+}
+
+.tree-name {
+  white-space: nowrap;
+}
+
+.tree-path {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46%;
+}
+
 .issue {
   border-left: 2px solid var(--line);
   padding: 4px 0 4px 10px;

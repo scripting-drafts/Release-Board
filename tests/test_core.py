@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
+from release_board.compare import _parse_name_status, _tree  # noqa: E402
 from release_board.launchpad import _source_entry, status_for  # noqa: E402
 from release_board.packaging import parse_control  # noqa: E402
 from release_board.release import (  # noqa: E402
@@ -218,6 +219,25 @@ class LaunchpadTests(unittest.TestCase):
         status = status_for(data, "demo", "demo", "noble", "1.0-0ubuntu2~noble1")
         self.assertEqual(status["state"], "failed")
         self.assertEqual(status["logUrl"], "https://launchpad.net/log")
+
+
+class CompareTests(unittest.TestCase):
+    def test_parse_name_status(self) -> None:
+        files = _parse_name_status("M\0src/a.py\0R100\0old.py\0new.py\0D\0gone.txt\0")
+        self.assertEqual(
+            [(item["status"], item["path"]) for item in files],
+            [("D", "gone.txt"), ("R", "new.py"), ("M", "src/a.py")],
+        )
+        self.assertEqual(files[1]["oldPath"], "old.py")
+
+    def test_tree(self) -> None:
+        files = [
+            {"status": "M", "path": "src/a.py", "statusDetail": "M"},
+            {"status": "A", "path": "docs/b.md", "statusDetail": "A"},
+        ]
+        tree = _tree(files)
+        self.assertEqual([node["name"] for node in tree], ["docs", "src"])
+        self.assertEqual(tree[1]["children"][0]["status"], "M")
 
 
 class LedgerTests(unittest.TestCase):

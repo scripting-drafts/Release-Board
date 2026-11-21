@@ -30,11 +30,26 @@ The package's installed provenance is visible with:
 cat /usr/share/doc/qa-dashboard/provenance.json
 ```
 
+## Source diff
+
+**Source diff** shows the changed-file tree for:
+
+```text
+Local Sources (HEAD) → Origin branch (default: main) → Released tag
+```
+
+Use `--origin` to compare another remote branch, `--release` to choose a
+specific tag, `--fetch` to update refs first, and `--open` to launch the three
+directory trees in Zed as a multi-diff. Uncommitted changes are reported but
+Local Sources remains `HEAD`. Exported trees live under
+`~/.local/state/release-board/diffs`; `compare --clean` removes them.
+
 ## Command examples
 
 ```bash
 bin/release-board board --json
 bin/release-board git --fetch
+bin/release-board compare --root ~/QA-Sentinels --open
 bin/release-board pkg --root ~/QA-Sentinels
 bin/release-board launchpad --refresh
 bin/release-board build-source --root ~/QA-Sentinels --series "noble resolute"

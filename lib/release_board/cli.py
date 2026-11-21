@@ -10,6 +10,12 @@ from typing import Any
 
 from . import __version__
 from .board import build_board, render_markdown, write_board
+from .compare import (
+    CompareError,
+    clean_diffs,
+    compare_cli_payload,
+    render_tree_text,
+)
 from .config import (
     config_summary,
     init_config,
@@ -218,6 +224,46 @@ def cmd_board(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compare(args: argparse.Namespace) -> int:
+    config = load_config()
+    if args.clean:
+        payload = clean_diffs(_resolve_root(args.root, config) if args.root else None)
+        _print(payload, args.json)
+        return 0
+
+    root = _resolve_root(args.root, config)
+    payload = compare_cli_payload(
+        root,
+        config,
+        origin_branch=args.origin,
+        release_ref=args.release,
+        fetch=args.fetch,
+        open_zed=args.open,
+    )
+    if args.json:
+        _print(payload, True)
+    else:
+        print(f"root:     {payload['root']}")
+        for key in ("local", "origin", "released"):
+            ref = payload["refs"][key]
+            print(f"{ref['label']:<18} {ref['short']}  {ref['subject']}")
+        for comparison in payload["comparisons"]:
+            print(
+                f"\n{comparison['label']} · {comparison['fileCount']} file(s) · "
+                f"ahead {comparison['ahead']} / behind {comparison['behind']}"
+            )
+            if not comparison["files"]:
+                print("  no differences")
+            else:
+                for line in render_tree_text(comparison["tree"]):
+                    print(f"  {line}")
+        for warning in payload.get("warnings", []):
+            print(f"\nwarning: {warning}")
+        if args.open:
+            print(f"\nopened Zed diff: {payload.get('zed', {}).get('export', {}).get('directory', '')}")
+    return 0 if payload.get("ok") else 1
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     config = load_config()
     root = _resolve_root(args.root, config)
@@ -404,6 +450,10 @@ def _zed_tasks(cli: Path) -> list[dict[str, Any]]:
         {"label": "Release: test", "command": f"{python} {cli} test --root {root}"},
         {"label": "Release: git fetch", "command": f"{python} {cli} git --root {root} --fetch"},
         {"label": "Release: git inspect", "command": f"{python} {cli} git --root {root}", "reveal": "no_focus"},
+        {
+            "label": "Release: compare in Zed",
+            "command": f"{python} {cli} compare --root {root} --open",
+        },
         {"label": "Release: packaging inspect", "command": f"{python} {cli} pkg --root {root}", "reveal": "no_focus"},
         {"label": "Release: launchpad", "command": f"{python} {cli} launchpad --refresh", "reveal": "no_focus"},
         {"label": "Release: trace verify", "command": f"{python} {cli} trace --verify", "reveal": "no_focus"},
@@ -481,6 +531,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("board", cmd_board, "render the release board")
     p.add_argument("--refresh", action="store_true")
     p.add_argument("--write", action="store_true")
+
+    p = add("compare", cmd_compare, "compare local, origin and released trees")
+    p.add_argument("--root", default="")
+    p.add_argument("--origin", default="main", help="origin branch to compare (default: main)")
+    p.add_argument("--release", default="", help="release tag (default: v<package version>)")
+    p.add_argument("--fetch", action="store_true", help="fetch origin and tags first")
+    p.add_argument("--open", action="store_true", help="open the tree diff in Zed")
+    p.add_argument("--clean", action="store_true", help="remove exported diff trees")
 
     p = add("check", cmd_check, "run release preflight")
     p.add_argument("--root", default="")

@@ -146,9 +146,14 @@ function createWindow() {
         }
       }
       await new Promise((resolve) => setTimeout(resolve, screenshotClick ? 5000 : 1200));
-      const image = await mainWindow.webContents.capturePage();
-      fs.writeFileSync(screenshotTarget, image.toPNG());
-      app.quit();
+      try {
+        const image = await mainWindow.webContents.capturePage();
+        fs.writeFileSync(screenshotTarget, image.toPNG());
+      } catch (error) {
+        fs.writeFileSync(`${screenshotTarget}.error.txt`, String(error?.stack || error));
+      } finally {
+        app.quit();
+      }
     }, 8000);
   });
   mainWindow.once("ready-to-show", () => mainWindow.show());
@@ -157,6 +162,14 @@ function createWindow() {
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event) => event.preventDefault());
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    if (level >= 3) {
+      console.error(`[renderer] ${message} (${sourceId}:${line})`);
+    }
+  });
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error(`[renderer-gone] ${details.reason}`);
+  });
 }
 
 function registerIpc() {
@@ -170,6 +183,20 @@ function registerIpc() {
     const args = ["git", "--json"];
     if (options.fetch) args.push("--fetch");
     return cli(args, 180000);
+  });
+
+  ipcMain.handle("compare:get", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    const origin = /^[A-Za-z0-9._/-]+$/.test(String(options.origin || "main")) ? String(options.origin || "main") : "main";
+    return cli(["compare", "--json", "--root", root, "--origin", origin], 180000);
+  });
+
+  ipcMain.handle("compare:open", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    const origin = /^[A-Za-z0-9._/-]+$/.test(String(options.origin || "main")) ? String(options.origin || "main") : "main";
+    return cli(["compare", "--json", "--open", "--root", root, "--origin", origin], 300000);
   });
 
   ipcMain.handle("pkg:get", async () => cli(["pkg", "--json"], 120000));

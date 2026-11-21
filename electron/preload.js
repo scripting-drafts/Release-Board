@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("releaseBoard", {
   board: (options = {}) => ipcRenderer.invoke("board:get", options),
   git: (options = {}) => ipcRenderer.invoke("git:get", options),
+  compare: (options = {}) => ipcRenderer.invoke("compare:get", options),
+  compareOpen: (options = {}) => ipcRenderer.invoke("compare:open", options),
   pkg: () => ipcRenderer.invoke("pkg:get"),
   launchpad: (options = {}) => ipcRenderer.invoke("launchpad:get", options),
   trace: () => ipcRenderer.invoke("trace:get"),
