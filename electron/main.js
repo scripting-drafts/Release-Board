@@ -125,6 +125,15 @@ function createWindow() {
     },
   });
   mainWindow.removeMenu();
+  mainWindow.once("ready-to-show", () => mainWindow.show());
+  mainWindow.webContents.once("did-finish-load", () => {
+    if (!mainWindow.isVisible()) mainWindow.show();
+  });
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 2000);
   const loadOptions = colorScheme ? { query: { colors: colorScheme } } : undefined;
   mainWindow.loadFile(path.join(APP_ROOT, "renderer", "index.html"), loadOptions).then(() => {
     if (!screenshotTarget) return;
@@ -159,7 +168,6 @@ function createWindow() {
       }
     }, 8000);
   });
-  mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (safeExternal(url)) shell.openExternal(url);
     return { action: "deny" };
@@ -308,14 +316,30 @@ function registerIpc() {
   });
 }
 
-app.whenReady().then(async () => {
-  registerIpc();
-  syncLauncherIcon();
-  nativeTheme.on("updated", () => {
-    syncLauncherIcon();
-    if (mainWindow) mainWindow.setIcon(iconPath());
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow) {
+      if (app.isReady()) createWindow();
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
-  createWindow();
-});
+
+  app.whenReady().then(async () => {
+    registerIpc();
+    syncLauncherIcon();
+    nativeTheme.on("updated", () => {
+      syncLauncherIcon();
+      if (mainWindow) mainWindow.setIcon(iconPath());
+    });
+    createWindow();
+  });
+}
 
 app.on("window-all-closed", () => app.quit());
