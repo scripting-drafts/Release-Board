@@ -58,11 +58,27 @@ function rootHealth(root) {
   return "good";
 }
 
+let noticeTimer = null;
+
 function notice(message, error = false) {
   const node = document.getElementById("notice");
+  if (noticeTimer) {
+    clearTimeout(noticeTimer);
+    noticeTimer = null;
+  }
   node.textContent = message || "";
   node.classList.toggle("hidden", !message);
   node.classList.toggle("error", Boolean(error));
+  if (message) {
+    noticeTimer = setTimeout(
+      () => {
+        node.classList.add("hidden");
+        node.textContent = "";
+        noticeTimer = null;
+      },
+      error ? 6500 : 4000
+    );
+  }
 }
 
 function setView(view) {
