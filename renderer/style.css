@@ -278,13 +278,19 @@ button:disabled {
   display: none !important;
 }
 
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .grid {
   display: grid;
   gap: 14px;
 }
 
 .grid.cards {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
 .grid.two {
@@ -493,11 +499,43 @@ tr:last-child td {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 22px 0 10px;
+  margin: 0;
 }
 
-.section-title:first-child {
+.section-title h2 {
+  margin: 0;
+}
+
+.card > h3 + table {
+  margin-top: 10px;
+}
+
+.card > h3 + .muted.small {
+  margin-top: 4px;
+}
+
+.card-section {
+  margin-top: 18px;
+}
+
+.card-section-title {
+  margin: 22px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+}
+
+.card-section > .card-section-title:first-child {
   margin-top: 0;
+}
+
+.card-block {
+  margin-top: 12px;
+}
+
+.card-actions {
+  margin-top: 16px;
 }
 
 .chips {
@@ -534,7 +572,7 @@ tr:last-child td {
 .task-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 10px;
+  gap: 14px;
 }
 
 .task-card {
@@ -620,7 +658,7 @@ select:focus {
   grid-template-columns: minmax(130px, 0.5fr) minmax(260px, 1fr) auto;
   gap: 8px;
   align-items: center;
-  margin-bottom: 8px;
+  margin: 0;
 }
 
 @media (max-width: 900px) {

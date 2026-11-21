@@ -316,11 +316,14 @@ function renderPackaging() {
     );
     const files = pkg.versionFiles || [];
     if (files.length) {
+      const block = h("div", "card-section");
+      block.append(h("div", "card-section-title", "Version files"));
       const chips = h("div", "chips");
       for (const file of files) {
         chips.append(pill(`${file.file} ${file.matches ? "✓" : "✗"}`, file.matches ? "good" : "bad"));
       }
-      card.append(h("div", "section-title"), h("div", "muted small", "Version files"), chips);
+      block.append(chips);
+      card.append(block);
     }
     addIssues(card, pkg.errors, pkg.warnings);
     grid.append(card);
@@ -406,7 +409,7 @@ function renderTrace() {
   );
   toolbar.append(h("span", "muted small", `Ledger ${board.config?.ledger || ""} · ${board.ledger?.entries ?? 0} entries`));
   node.append(toolbar);
-  const result = h("div", "stack");
+  const result = h("div", "stack hidden");
   result.id = "verify-result";
   node.append(result);
 
@@ -414,7 +417,7 @@ function renderTrace() {
   const card = h("div", "card");
   card.append(h("h3", "", "Recent ledger events"));
   if (!entries.length) {
-    card.append(h("div", "muted small", "No release events recorded yet. Build and upload a package to start the chain."));
+    card.append(h("div", "card-sub", "No release events recorded yet. Build and upload a package to start the chain."));
   } else {
     const table = h("table");
     const thead = h("thead");
@@ -443,7 +446,11 @@ function renderVerifyResult(data) {
   const node = document.getElementById("verify-result");
   if (!node) return;
   clear(node);
-  if (!data) return;
+  if (!data) {
+    node.classList.add("hidden");
+    return;
+  }
+  node.classList.remove("hidden");
   const card = h("div", "card");
   const head = h("div", "card-head");
   head.append(h("h3", "", "Evidence verification"));
@@ -551,8 +558,8 @@ function renderSettings() {
   if (!config) return;
   const card = h("div", "card");
   card.append(h("h3", "", "Project roots"));
-  card.append(h("div", "muted small", "Each root is opened as a separate project in one Zed window."));
-  const rootBox = h("div", "stack");
+  card.append(h("div", "card-sub", "Each root is opened as a separate project in one Zed window."));
+  const rootBox = h("div", "stack card-block");
   rootBox.id = "settings-roots";
   for (const root of config.roots || []) {
     rootBox.append(rootEditRow(root.name, root.path));
@@ -561,7 +568,9 @@ function renderSettings() {
   const add = button("Add root", "ghost", () => {
     rootBox.append(rootEditRow("", ""));
   });
-  card.append(h("div", "toolbar"), add);
+  const addBar = h("div", "toolbar card-block");
+  addBar.append(add);
+  card.append(addBar);
 
   const form = h("div", "form-grid");
   const userLabel = h("label", "field");
@@ -584,9 +593,10 @@ function renderSettings() {
   refreshInput.value = config.refreshSeconds || 60;
   refreshLabel.append(refreshInput);
   form.append(userLabel, keyLabel, refreshLabel);
-  card.append(h("div", "section-title"), h("h3", "", "Release identity"), form);
+  card.append(h("h3", "card-section-title", "Release identity"));
+  card.append(form);
 
-  const actions = h("div", "toolbar");
+  const actions = h("div", "toolbar card-actions");
   const save = button("Save settings", "primary", async () => {
     const roots = [...rootBox.querySelectorAll(".root-edit")].map((row) => ({
       name: row.querySelector(".root-name").value.trim(),
@@ -613,7 +623,7 @@ function renderSettings() {
     renderSettings();
   });
   actions.append(reset);
-  card.append(h("div", "section-title"), actions);
+  card.append(actions);
   node.append(card);
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "release-board",
   "productName": "Release Board",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Standalone release cockpit for Debian packages published to Launchpad",
   "main": "electron/main.js",
