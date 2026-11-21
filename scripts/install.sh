@@ -22,8 +22,7 @@ if gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -q 
 else
   ICON_TARGET="$ICON_DIR/release-board-light.png"
 fi
-rm -f "$ICON_DIR/icon.png"
-cp "$ICON_TARGET" "$ICON_DIR/icon.png"
+ln -sfn "$ICON_TARGET" "$ICON_DIR/icon.png"
 rm -f "$ICON_DIR/icon.svg"
 
 cat > "$APPS/release-board.desktop" <<EOF
@@ -35,7 +34,6 @@ Exec="$ROOT/node_modules/.bin/electron" "$ROOT"
 Icon=$ICON_DIR/icon.png
 Terminal=false
 Categories=Development;
-StartupWMClass=release-board
 StartupNotify=false
 EOF
 chmod 0644 "$APPS/release-board.desktop"

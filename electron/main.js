@@ -33,7 +33,7 @@ function syncLauncherIcon(dark = nativeTheme.shouldUseDarkColors) {
     const link = path.join(ICON_DIR, "icon.png");
     fs.mkdirSync(ICON_DIR, { recursive: true });
     fs.rmSync(link, { force: true });
-    fs.copyFileSync(target, link);
+    fs.symlinkSync(target, link);
   } catch {
     // The window icon still follows the theme if the launcher link fails.
   }
