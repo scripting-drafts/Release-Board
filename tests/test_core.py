@@ -280,7 +280,7 @@ class BoardTests(unittest.TestCase):
             "config": {"ledger": "/tmp/ledger.jsonl"},
         }
         text = render_markdown(board)
-        self.assertIn("Release board", text)
+        self.assertIn("Release Board", text)
         self.assertIn("demo", text)
         self.assertIn("1.0-0ubuntu1~noble1", text)
 

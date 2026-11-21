@@ -148,7 +148,7 @@ def build_board(config: dict[str, Any] | None = None, refresh_launchpad: bool = 
 def render_markdown(board: dict[str, Any]) -> str:
     summary = board.get("summary", {})
     lines = [
-        "# Release board",
+        "# Release Board",
         "",
         f"Generated: {board.get('generatedAt', '')}",
         f"Roots: {summary.get('roots', 0)} · Packages: {summary.get('packages', 0)} · "
