@@ -2,7 +2,9 @@
   <rect width="128" height="128" rx="28" fill="#070c17"/>
   <g transform="translate(32 32) scale(1.3333)">
     <path d="M24 4 42 14v20L24 44 6 34V14Z" fill="none" stroke="#3d9cd6" stroke-width="2.4"/>
-    <path d="M16 32V17h9a5 5 0 0 1 0 10h-9M25 27l7 7" fill="none" stroke="#d9e8f1" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="34" cy="17" r="2.2" fill="#3d9cd6"/>
+    <g transform="translate(24 25.5) scale(1.14) translate(-24 -25.5)">
+      <path d="M16 32V17h9a5 5 0 0 1 0 10h-9M25 27l7 7" fill="none" stroke="#d9e8f1" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="34" cy="17" r="2.2" fill="#3d9cd6"/>
+    </g>
   </g>
 </svg>
