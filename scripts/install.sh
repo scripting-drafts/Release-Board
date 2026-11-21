@@ -34,7 +34,7 @@ Exec="$ROOT/node_modules/.bin/electron" "$ROOT"
 Icon=$ICON_DIR/icon.png
 Terminal=false
 Categories=Development;
-StartupNotify=true
+StartupNotify=false
 EOF
 chmod 0644 "$APPS/release-board.desktop"
 
