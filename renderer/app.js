@@ -645,26 +645,20 @@ function renderView(view) {
 }
 
 async function refresh(withLaunchpad = false, forceConfig = false) {
-  const refreshButton = document.getElementById("refresh");
-  refreshButton.disabled = true;
-  try {
-    const [boardResult, configResult] = await Promise.all([
-      api.board({ refresh: withLaunchpad }),
-      forceConfig ? api.config() : Promise.resolve({ ok: true, data: state.config }),
-    ]);
-    if (!boardResult.ok || !boardResult.data) {
-      notice(boardResult.error || "failed to load release state", true);
-      return;
-    }
-    state.board = boardResult.data;
-    if (configResult?.ok && configResult.data) state.config = configResult.data;
-    renderSidebar();
-    // Keep the Settings form intact while it is being edited. Navigating back
-    // to Settings, saving, or pressing Reload re-renders it explicitly.
-    if (state.view !== "settings") renderView(state.view);
-  } finally {
-    refreshButton.disabled = false;
+  const [boardResult, configResult] = await Promise.all([
+    api.board({ refresh: withLaunchpad }),
+    forceConfig ? api.config() : Promise.resolve({ ok: true, data: state.config }),
+  ]);
+  if (!boardResult.ok || !boardResult.data) {
+    notice(boardResult.error || "failed to load release state", true);
+    return;
   }
+  state.board = boardResult.data;
+  if (configResult?.ok && configResult.data) state.config = configResult.data;
+  renderSidebar();
+  // Keep the Settings form intact while it is being edited. Navigating back
+  // to Settings, saving, or pressing Reload re-renders it explicitly.
+  if (state.view !== "settings") renderView(state.view);
 }
 
 async function runTask(name) {
@@ -732,7 +726,6 @@ async function main() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
-  document.getElementById("refresh").addEventListener("click", () => refresh(true));
   document.getElementById("open-zed").addEventListener("click", async () => {
     const result = await api.openZed();
     if (!result.ok) notice(result.error || "could not open Zed", true);

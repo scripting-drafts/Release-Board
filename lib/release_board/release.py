@@ -290,7 +290,7 @@ def _prepare_tree(root: Path, series: str, revision: int, config: dict[str, Any]
         "remote": git_out(["remote", "get-url", "origin"], root),
         "clean": not git_out(["status", "--porcelain"], root),
         "builtAt": now_iso(),
-        "builder": "release-board/0.2.3",
+        "builder": "release-board/0.2.4",
     }
     write_json_atomic(src / "debian" / "provenance.json", provenance, 0o644)
 
