@@ -12,7 +12,7 @@
 }
 
 .task-card:hover {
-  border-color: rgba(61, 214, 195, 0.35);
+  border-color: rgba(var(--accent-rgb), 0.35);
 }
 
 select {
