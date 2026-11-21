@@ -52,10 +52,27 @@ function statusKind(value) {
   return "";
 }
 
-function rootHealth(root) {
+function worktreeHealth(root) {
   if (!root || !root.isGit) return "bad";
-  if (!root.clean || root.branches?.diverged?.length) return "warn";
+  return root.clean ? "good" : "warn";
+}
+
+function syncHealth(root) {
+  if (!root || !root.isGit) return "bad";
+  if (!root.upstream) return "warn";
+  if (root.ahead || root.behind) return "warn";
+  if (root.branches?.diverged?.includes(root.branch)) return "warn";
   return "good";
+}
+
+function syncBadge(root) {
+  if (!root?.isGit) return null;
+  if (!root.upstream) return { text: "no upstream", kind: "warn" };
+  const parts = [];
+  if (root.ahead) parts.push(`ahead ${root.ahead}`);
+  if (root.behind) parts.push(`behind ${root.behind}`);
+  if (!parts.length) return null;
+  return { text: parts.join(" · "), kind: "warn" };
 }
 
 let noticeTimer = null;
@@ -175,8 +192,13 @@ function renderOverview() {
     const left = h("div");
     left.append(h("h3", "", root.configuredName || root.name));
     left.append(h("div", "card-sub", root.path));
-    head.append(left);
-    head.append(pill(root.isGit ? (root.clean ? "clean" : `${root.dirty} dirty`) : "missing", rootHealth(root)));
+    const badges = h("div", "split");
+    badges.append(
+      pill(root.isGit ? (root.clean ? "clean" : `${root.dirty} dirty`) : "missing", worktreeHealth(root))
+    );
+    const sync = syncBadge(root);
+    if (sync) badges.append(pill(sync.text, sync.kind));
+    head.append(left, badges);
     card.append(head);
     if (root.isGit) {
       const headNode = root.head || {};
@@ -260,7 +282,12 @@ function renderGit() {
     const left = h("div");
     left.append(h("h3", "", root.configuredName || root.name));
     left.append(h("div", "card-sub", root.path));
-    head.append(left, pill(root.isGit ? root.branch : "missing", rootHealth(root)));
+    const badges = h("div", "split");
+    badges.append(pill(root.isGit ? root.branch : "missing", syncHealth(root)));
+    if (root.isGit) {
+      badges.append(pill(root.clean ? "clean" : `${root.dirty} dirty`, worktreeHealth(root)));
+    }
+    head.append(left, badges);
     card.append(head);
     if (!root.isGit) {
       card.append(h("div", "issue bad", root.error || "not a Git repository"));
