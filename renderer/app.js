@@ -389,7 +389,8 @@ function renderLaunchpad() {
       tr.append(h("td", "nowrap", buildPill));
       tr.append(h("td", "nowrap", pill(row.state, statusKind(row.state))));
       const links = h("td", "split nowrap");
-      if (row.sourceUrl) links.append(externalLink("source", row.sourceUrl));
+      if (row.dscUrl) links.append(externalLink("dsc", row.dscUrl));
+      if (row.sourceUrl) links.append(externalLink("PPA", row.sourceUrl));
       if (row.buildUrl) links.append(externalLink("build", row.buildUrl));
       if (row.logUrl && row.state === "failed") links.append(externalLink("log", row.logUrl));
       tr.append(links);

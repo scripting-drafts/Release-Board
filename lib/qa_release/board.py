@@ -68,6 +68,7 @@ def build_board(config: dict[str, Any] | None = None, refresh_launchpad: bool = 
                 "buildState": status.get("buildState", ""),
                 "uploadState": status.get("uploadState", ""),
                 "sourceUrl": status.get("sourceUrl", ""),
+                "dscUrl": status.get("dscUrl", ""),
                 "buildUrl": status.get("buildUrl", ""),
                 "logUrl": status.get("logUrl", ""),
                 "commit": trace.get("commit") or "",

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from qa_release.board import render_markdown  # noqa: E402
-from qa_release.launchpad import status_for  # noqa: E402
+from qa_release.launchpad import _source_entry, status_for  # noqa: E402
 from qa_release.packaging import parse_control  # noqa: E402
 from qa_release.release import (  # noqa: E402
     _next_revision,
@@ -157,6 +157,28 @@ class LaunchpadTests(unittest.TestCase):
         }
         status = status_for(data, "demo", "demo", "noble", "1.0-0ubuntu1~noble1")
         self.assertEqual(status["state"], "failed")
+
+    def test_public_source_links(self) -> None:
+        entry = _source_entry(
+            {
+                "self_link": "https://api.launchpad.net/1.0/~u/+archive/ubuntu/demo/+sourcepub/42",
+                "distro_series_link": "https://api.launchpad.net/1.0/ubuntu/noble",
+                "source_package_name": "demo",
+                "source_package_version": "1.0-0ubuntu1~noble1",
+                "status": "Published",
+                "date_created": "2026-11-20T10:00:00+00:00",
+                "date_published": "2026-11-20T10:30:00+00:00",
+                "packageupload_link": "https://api.launchpad.net/1.0/ubuntu/noble/+upload/7",
+            },
+            "u",
+            "demo",
+        )
+        self.assertNotIn("+sourcepub", entry["url"])
+        self.assertIn("+packages?", entry["url"])
+        self.assertEqual(
+            entry["dscUrl"],
+            "https://launchpad.net/~u/+archive/ubuntu/demo/+files/demo_1.0-0ubuntu1~noble1.dsc",
+        )
 
     def test_failed_state(self) -> None:
         data = {

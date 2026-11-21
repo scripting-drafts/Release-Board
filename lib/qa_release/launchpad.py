@@ -28,16 +28,30 @@ def _series(link: str) -> str:
 
 def _source_entry(entry: dict[str, Any], user: str, ppa: str) -> dict[str, Any]:
     source_id = str(entry.get("self_link", "")).rstrip("/").rsplit("/", 1)[-1]
+    package = entry.get("source_package_name", "")
+    version = entry.get("source_package_version", "")
+    series = _series(entry.get("distro_series_link", ""))
+    # +sourcepub is an API-only resource and returns 404 in a browser.
+    # Point the UI at the public PPA package list and the signed .dsc instead.
+    query = urllib.parse.urlencode(
+        {
+            "field.name_filter": package,
+            "field.status_filter": "published",
+            "field.series_filter": series,
+        }
+    )
     return {
         "id": source_id,
-        "series": _series(entry.get("distro_series_link", "")),
-        "package": entry.get("source_package_name", ""),
-        "version": entry.get("source_package_version", ""),
+        "series": series,
+        "package": package,
+        "version": version,
         "status": entry.get("status", ""),
         "pocket": entry.get("pocket", ""),
         "created": entry.get("date_created", ""),
         "published": entry.get("date_published", ""),
-        "url": f"https://launchpad.net/~{user}/+archive/ubuntu/{ppa}/+sourcepub/{source_id}",
+        "url": f"https://launchpad.net/~{user}/+archive/ubuntu/{ppa}/+packages?{query}",
+        "dscUrl": f"https://launchpad.net/~{user}/+archive/ubuntu/{ppa}/+files/{package}_{version}.dsc",
+        "apiUrl": entry.get("self_link", ""),
         "uploadId": str(entry.get("packageupload_link", "")).rstrip("/").rsplit("/", 1)[-1],
     }
 
@@ -195,6 +209,7 @@ def status_for(
         "publishedSource": published_source,
         "builds": builds,
         "sourceUrl": (latest_source or {}).get("url", ""),
+        "dscUrl": (latest_source or {}).get("dscUrl", ""),
         "buildUrl": builds[0].get("url", "") if builds else "",
         "logUrl": next((item.get("logUrl") for item in builds if item.get("logUrl")), ""),
         "error": archive.get("error", ""),
