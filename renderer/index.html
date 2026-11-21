@@ -63,6 +63,14 @@
         <section id="view-settings" class="view hidden"></section>
       </main>
     </div>
+    <script>
+      if (new URLSearchParams(location.search).get("colors") === "first") {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "first-colors.css";
+        document.head.append(link);
+      }
+    </script>
     <script src="app.js"></script>
   </body>
 </html>

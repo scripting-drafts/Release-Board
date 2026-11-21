@@ -13,6 +13,7 @@ const TASK_TIMEOUT = 6 * 60 * 60 * 1000;
 const screenshotTarget = (process.argv.find((arg) => arg.startsWith("--screenshot=")) || "").split("=", 2)[1] || "";
 const screenshotView = (process.argv.find((arg) => arg.startsWith("--view=")) || "").split("=", 2)[1] || "";
 const screenshotClick = (process.argv.find((arg) => arg.startsWith("--click=")) || "").split("=", 2)[1] || "";
+const colorScheme = (process.argv.find((arg) => arg.startsWith("--colors=")) || "").split("=", 2)[1] || "";
 
 // The board is a light 2D interface; software rendering avoids Wayland/Vulkan
 // and GPU shader-cache failures on NVIDIA desktops.
@@ -124,7 +125,8 @@ function createWindow() {
     },
   });
   mainWindow.removeMenu();
-  mainWindow.loadFile(path.join(APP_ROOT, "renderer", "index.html")).then(() => {
+  const loadOptions = colorScheme ? { query: { colors: colorScheme } } : undefined;
+  mainWindow.loadFile(path.join(APP_ROOT, "renderer", "index.html"), loadOptions).then(() => {
     if (!screenshotTarget) return;
     setTimeout(async () => {
       const view = screenshotView.replace(/[^a-z]/g, "");

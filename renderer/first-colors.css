@@ -1,0 +1,24 @@
+/*
+ * Component colors from the first Release Board build.
+ * Used only by the color-comparison build (--colors=first).
+ */
+.nav-item:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.task-card {
+  background: var(--panel-2);
+}
+
+.task-card:hover {
+  border-color: rgba(61, 214, 195, 0.35);
+}
+
+select {
+  background: var(--panel-2);
+}
+
+select option {
+  background: var(--panel-2);
+}
