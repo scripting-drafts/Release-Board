@@ -140,8 +140,13 @@ def git_out(args: Sequence[str], cwd: Path, default: str = "") -> str:
 def parse_dpkg_changelog(root: Path) -> dict[str, str] | None:
     fields = ("Source", "Version", "Distribution", "Urgency", "Maintainer", "Date", "Changes")
     values: dict[str, str] = {}
+    if not root.is_dir():
+        return None
     for field in fields:
-        proc = run(["dpkg-parsechangelog", "-S", field], cwd=root, timeout=20)
+        try:
+            proc = run(["dpkg-parsechangelog", "-S", field], cwd=root, timeout=20)
+        except OSError:
+            return None
         if proc.returncode != 0:
             return None
         values[field.lower()] = proc.stdout.strip()

@@ -19,7 +19,7 @@ from release_board.release import (  # noqa: E402
     _published_matches,
 )
 from release_board.trace import append_event, read_ledger  # noqa: E402
-from release_board.util import run, series_version, split_version  # noqa: E402
+from release_board.util import parse_dpkg_changelog, run, series_version, split_version  # noqa: E402
 
 
 class VersionTests(unittest.TestCase):
@@ -51,6 +51,11 @@ class VersionTests(unittest.TestCase):
 
 
 class PackagingTests(unittest.TestCase):
+    def test_missing_changelog_is_not_fatal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "does-not-exist"
+            self.assertIsNone(parse_dpkg_changelog(missing))
+
     def test_parse_control(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "control"

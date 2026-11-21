@@ -40,6 +40,8 @@ def build_board(config: dict[str, Any] | None = None, refresh_launchpad: bool = 
     packages: list[dict[str, Any]] = []
     for package in package_data["packages"]:
         source = package.get("source", "")
+        if not source:
+            continue
         parsed = split_version(package.get("version", ""))
         profile = profile_for(source, config)
         git = git_by_path.get(str(Path(package.get("path", "")).resolve()), {})

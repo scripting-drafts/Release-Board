@@ -8,6 +8,11 @@ const path = require("node:path");
 const APP_ROOT = path.resolve(__dirname, "..");
 const CLI = path.join(APP_ROOT, "bin", "release-board");
 const TASK_TIMEOUT = 6 * 60 * 60 * 1000;
+
+// The board is a light 2D interface; software rendering avoids Wayland/Vulkan
+// and GPU shader-cache failures on NVIDIA desktops.
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
 const running = new Map();
 let mainWindow = null;
 let configCache = null;
