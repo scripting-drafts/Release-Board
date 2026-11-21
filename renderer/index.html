@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QA Release Board</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" role="img">
+              <path d="M24 4 42 14v20L24 44 6 34V14Z" fill="none" stroke="currentColor" stroke-width="2.4" />
+              <path d="M16 30V18h9a6 6 0 0 1 0 12h-5" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" />
+              <circle cx="33" cy="18" r="2.2" fill="currentColor" />
+            </svg>
+          </div>
+          <div>
+            <div class="brand-title">Release Board</div>
+            <div class="brand-sub">Launchpad cockpit</div>
+          </div>
+        </div>
+
+        <div class="sidebar-label">Projects</div>
+        <div id="root-list" class="root-list"></div>
+
+        <nav class="nav" aria-label="Views">
+          <button class="nav-item active" data-view="overview">Overview</button>
+          <button class="nav-item" data-view="git">Git inspector</button>
+          <button class="nav-item" data-view="packaging">Packaging</button>
+          <button class="nav-item" data-view="launchpad">Launchpad</button>
+          <button class="nav-item" data-view="trace">Traceability</button>
+          <button class="nav-item" data-view="tasks">Lifecycle tasks</button>
+          <button class="nav-item" data-view="settings">Settings</button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <div id="ledger-path" class="muted small"></div>
+          <div class="muted small">Read-only monitoring. No credentials stored.</div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h1 id="view-title">Overview</h1>
+            <div id="view-subtitle" class="muted small">Loading release state…</div>
+          </div>
+          <div class="top-actions">
+            <button id="open-zed" class="ghost">Open in Zed</button>
+            <button id="refresh" class="primary">Refresh</button>
+          </div>
+        </header>
+
+        <div id="notice" class="notice hidden"></div>
+
+        <section id="view-overview" class="view"></section>
+        <section id="view-git" class="view hidden"></section>
+        <section id="view-packaging" class="view hidden"></section>
+        <section id="view-launchpad" class="view hidden"></section>
+        <section id="view-trace" class="view hidden"></section>
+        <section id="view-tasks" class="view hidden"></section>
+        <section id="view-settings" class="view hidden"></section>
+      </main>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

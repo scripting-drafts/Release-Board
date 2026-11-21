@@ -1,0 +1,32 @@
+{
+  "qa-dashboard": {
+    "ppa": "qa-dashboard",
+    "series": ["jammy", "noble", "resolute", "stonking"],
+    "jammyNative": false,
+    "binaryPackage": "qa-dashboard",
+    "test": ["npm", "test"],
+    "versionFiles": ["package.json", "package-lock.json", "README.md"],
+    "sourceNeeds": ["node_modules/electron"],
+    "docs": "docs/PPA.md"
+  },
+  "qa-sentinels": {
+    "ppa": "qa-sentinels",
+    "series": ["jammy", "noble", "resolute", "stonking"],
+    "jammyNative": false,
+    "binaryPackage": "qa-sentinels",
+    "test": ["python3", "-m", "unittest", "discover", "-s", "tests"],
+    "versionFiles": ["legal/manifest.json"],
+    "sourceNeeds": [],
+    "docs": "docs/PPA.md"
+  },
+  "ubuntu-backup": {
+    "ppa": "ubuntu-backup",
+    "series": ["jammy", "noble", "resolute"],
+    "jammyNative": true,
+    "binaryPackage": "ubuntu-backup",
+    "test": ["python3", "-m", "unittest", "discover", "-s", "tests"],
+    "versionFiles": ["debian/changelog", "CHANGELOG.md", "snap/snapcraft.yaml"],
+    "sourceNeeds": [],
+    "docs": "README.md"
+  }
+}
