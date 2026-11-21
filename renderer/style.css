@@ -684,8 +684,8 @@ tr:last-child td {
 
 @media (prefers-color-scheme: light) {
   .console {
-    background: #eef5f4;
-    color: #173c3d;
+    background: var(--panel);
+    color: var(--text);
   }
 }
 
