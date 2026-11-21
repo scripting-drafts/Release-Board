@@ -32,15 +32,15 @@ def state_home() -> Path:
 
 
 def config_path() -> Path:
-    return config_home() / "qa-release-board" / "config.json"
+    return config_home() / "release-board" / "config.json"
 
 
 def cache_dir() -> Path:
-    return cache_home() / "qa-release-board"
+    return cache_home() / "release-board"
 
 
 def state_dir() -> Path:
-    return state_home() / "qa-release-board"
+    return state_home() / "release-board"
 
 
 def ensure_dir(path: Path, mode: int = 0o700) -> Path:

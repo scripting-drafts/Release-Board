@@ -3,12 +3,12 @@
 ## First setup
 
 ```bash
-cd ~/qa-release-board
+cd ~/Release-Board
 npm install
 ./scripts/install.sh
 ```
 
-`install.sh` links `qa-release` into `~/.local/bin`, installs the global Zed
+`install.sh` links `release-board` into `~/.local/bin`, installs the global Zed
 tasks and adds a desktop entry. Edit roots in the app's Settings view; no
 source file needs to change.
 
@@ -33,14 +33,14 @@ cat /usr/share/doc/qa-dashboard/provenance.json
 ## Command examples
 
 ```bash
-bin/qa-release board --json
-bin/qa-release git --fetch
-bin/qa-release pkg --root ~/QA-Sentinels
-bin/qa-release launchpad --refresh
-bin/qa-release build-source --root ~/QA-Sentinels --series "noble resolute"
-bin/qa-release upload-latest --root ~/QA-Sentinels
-bin/qa-release watch --root ~/QA-Sentinels
-bin/qa-release trace --verify
+bin/release-board board --json
+bin/release-board git --fetch
+bin/release-board pkg --root ~/QA-Sentinels
+bin/release-board launchpad --refresh
+bin/release-board build-source --root ~/QA-Sentinels --series "noble resolute"
+bin/release-board upload-latest --root ~/QA-Sentinels
+bin/release-board watch --root ~/QA-Sentinels
+bin/release-board trace --verify
 ```
 
 Revision selection is automatic: when the published base version matches the
@@ -49,7 +49,7 @@ local base, the next upload uses the next `-0ubuntuN~series1` revision.
 ## Recovery
 
 - A failed build leaves its artifacts under
-  `~/.local/state/qa-release-board/builds/<package>/<version>/<series>/`.
+  `~/.local/state/release-board/builds/<package>/<version>/<series>/`.
 - A rejected upload is retried with a new revision; do not reuse a `.changes`
   file.
 - The ledger is append-only. To investigate, read it with `trace --json`; do

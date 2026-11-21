@@ -7,11 +7,11 @@ Dashboard; only the visual language is shared.
 
 | Component | Implementation |
 | --- | --- |
-| Workspace | `qa-release workspace` opens configured roots as separate Zed projects in one window. Roots are editable in Settings or `~/.config/qa-release-board/config.json`. Zed 1.28 has no portable workspace file; the launcher recreates the three-project session. |
-| Lifecycle tasks | `bin/qa-release` exposes check, test, tag, push-release, build-binary, build-source, upload and watch. Zed tasks call the same commands with `$ZED_WORKTREE_ROOT`. |
+| Workspace | `release-board workspace` opens configured roots as separate Zed projects in one window. Roots are editable in Settings or `~/.config/release-board/config.json`. Zed 1.28 has no portable workspace file; the launcher recreates the three-project session. |
+| Lifecycle tasks | `bin/release-board` exposes check, test, tag, push-release, build-binary, build-source, upload and watch. Zed tasks call the same commands with `$ZED_WORKTREE_ROOT`. |
 | Git inspector | `git` reads status, upstream tracking, local/remote branches, divergence, tags and HEAD. `--fetch` is the only network operation. |
 | Packaging inspector | Parses `debian/changelog`, `debian/control`, source format, version files, series policy, dput targets and the signing key. |
-| Launchpad monitor | Anonymous read-only calls to the Launchpad API for published sources and build records, cached under `~/.cache/qa-release-board`. |
+| Launchpad monitor | Anonymous read-only calls to the Launchpad API for published sources and build records, cached under `~/.cache/release-board`. |
 | Traceability | Signed annotated tag plus `debian/provenance.json` included in the source and installed at `/usr/share/doc/<package>/provenance.json`; an append-only JSONL ledger records build, upload and publication events. |
 
 ## Build and upload flow

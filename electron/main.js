@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const APP_ROOT = path.resolve(__dirname, "..");
-const CLI = path.join(APP_ROOT, "bin", "qa-release");
+const CLI = path.join(APP_ROOT, "bin", "release-board");
 const TASK_TIMEOUT = 6 * 60 * 60 * 1000;
 const running = new Map();
 let mainWindow = null;
@@ -35,7 +35,7 @@ function cli(args, timeout = 120000) {
           resolve({
             ok: false,
             data: null,
-            error: error ? String(error.message) : "invalid JSON from qa-release",
+            error: error ? String(error.message) : "invalid JSON from release-board",
             stderr: stderr || stdout,
           });
         }
@@ -83,7 +83,7 @@ function createWindow() {
     minWidth: 980,
     minHeight: 640,
     backgroundColor: "#071417",
-    title: "QA Release Board",
+    title: "Release Board",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

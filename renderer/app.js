@@ -727,9 +727,9 @@ async function runTask(name) {
   clearConsole();
   const consoleNode = document.getElementById("task-console");
   if (consoleNode) {
-    consoleNode.append(h("div", "muted", `$ qa-release ${name} · ${root}`));
+    consoleNode.append(h("div", "muted", `$ release-board ${name} · ${root}`));
   }
-  state.taskLog.push({ text: `$ qa-release ${name} · ${root}`, stream: "stdout" });
+  state.taskLog.push({ text: `$ release-board ${name} · ${root}`, stream: "stdout" });
   const result = await api.runTask({ name, root });
   if (!result.ok) {
     notice(result.error || "task failed to start", true);

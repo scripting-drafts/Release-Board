@@ -10,16 +10,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
-from qa_release.board import render_markdown  # noqa: E402
-from qa_release.launchpad import _source_entry, status_for  # noqa: E402
-from qa_release.packaging import parse_control  # noqa: E402
-from qa_release.release import (  # noqa: E402
+from release_board.board import render_markdown  # noqa: E402
+from release_board.launchpad import _source_entry, status_for  # noqa: E402
+from release_board.packaging import parse_control  # noqa: E402
+from release_board.release import (  # noqa: E402
     _next_revision,
     _published_base,
     _published_matches,
 )
-from qa_release.trace import append_event, read_ledger  # noqa: E402
-from qa_release.util import run, series_version, split_version  # noqa: E402
+from release_board.trace import append_event, read_ledger  # noqa: E402
+from release_board.util import run, series_version, split_version  # noqa: E402
 
 
 class VersionTests(unittest.TestCase):

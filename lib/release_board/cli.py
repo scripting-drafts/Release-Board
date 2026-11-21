@@ -1,4 +1,4 @@
-"""Command-line entry point for the QA Release Board."""
+"""Command-line entry point for the Release Board."""
 
 from __future__ import annotations
 
@@ -419,7 +419,7 @@ def _zed_tasks(cli: Path) -> list[dict[str, Any]]:
 
 def cmd_zed(args: argparse.Namespace) -> int:
     path = Path.home() / ".config" / "zed" / "tasks.json"
-    tasks = _zed_tasks(Path(__file__).resolve().parents[2] / "bin" / "qa-release")
+    tasks = _zed_tasks(Path(__file__).resolve().parents[2] / "bin" / "release-board")
     if args.dry_run:
         _print({"path": str(path), "tasks": tasks}, args.json)
         return 0
@@ -447,7 +447,7 @@ def cmd_zed(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="qa-release", description="QA Release Board")
+    parser = argparse.ArgumentParser(prog="release-board", description="Release Board")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -541,7 +541,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "json", False):
             print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, indent=2))
         else:
-            print(f"qa-release: {exc}", file=sys.stderr)
+            print(f"release-board: {exc}", file=sys.stderr)
         return 1
 
 
