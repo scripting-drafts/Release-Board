@@ -501,7 +501,7 @@ function renderCompare() {
       h(
         "div",
         "card-sub",
-        `${comparison.from.ref} → ${comparison.to.ref} · ahead ${comparison.ahead} / behind ${comparison.behind}`
+        `${comparison.from.ref} is ${comparison.ahead} ahead / ${comparison.behind} behind ${comparison.to.ref}`
       )
     );
     head.append(left, pill(fileLabel(comparison.fileCount), comparison.fileCount ? "info" : "good"));
@@ -532,7 +532,10 @@ async function loadCompare(root, openInZed) {
       return;
     }
     state.compareData = result.data;
-    if (openInZed) notice("Opened source tree diff in Zed.");
+    if (openInZed) {
+      const zed = result.data.zed || {};
+      notice(zed.opened ? "Opened source tree diff in Zed." : zed.message || "No source differences to open.");
+    }
   } finally {
     state.compareLoading = false;
     renderCompare();

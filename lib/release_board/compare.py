@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,6 @@ from .util import (
     git_out,
     now_iso,
     parse_dpkg_changelog,
-    run,
     split_version,
     state_dir,
     which,
@@ -137,17 +137,19 @@ def _comparison(root: Path, old: dict[str, Any], new: dict[str, Any], label: str
     output = git_out(["diff", "--name-status", "-M", "-z", old["sha"], new["sha"]], root)
     files = _parse_name_status(output)
     counts = git_out(["rev-list", "--left-right", "--count", f"{old['sha']}...{new['sha']}"], root)
-    behind = ahead = 0
+    from_only = to_only = 0
     if counts:
         parts = counts.split()
         if len(parts) == 2:
-            behind, ahead = int(parts[0]), int(parts[1])
+            from_only, to_only = int(parts[0]), int(parts[1])
     return {
         "label": label,
         "from": old,
         "to": new,
-        "ahead": ahead,
-        "behind": behind,
+        "ahead": from_only,
+        "behind": to_only,
+        "fromOnly": from_only,
+        "toOnly": to_only,
         "files": files,
         "tree": _tree(files),
         "fileCount": len(files),
@@ -211,33 +213,61 @@ def _slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("_") or "root"
 
 
-def _export_ref(root: Path, ref: str, destination: Path) -> None:
-    if destination.exists():
-        shutil.rmtree(destination)
-    ensure_dir(destination)
-    archive = destination.parent / f"{destination.name}.tar"
-    proc = git(["archive", "--format=tar", "-o", str(archive), ref], root, timeout=180)
+def _show_file(root: Path, ref: str, git_path: str, destination: Path) -> None:
+    proc = subprocess.run(
+        ["git", "show", f"{ref}:{git_path}"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     if proc.returncode != 0:
-        raise CompareError(f"git archive failed for {ref}: {proc.stderr.strip()}")
-    extract = run(["tar", "-xf", str(archive), "-C", str(destination)], timeout=180)
-    archive.unlink(missing_ok=True)
-    if extract.returncode != 0:
-        raise CompareError(f"tar extraction failed for {ref}: {extract.stderr.strip()}")
+        raise CompareError(
+            f"git show failed for {ref}:{git_path}: {proc.stderr.decode('utf-8', 'replace').strip()}"
+        )
+    ensure_dir(destination.parent)
+    destination.write_bytes(proc.stdout)
 
 
-def export_trees(data: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+def _empty_file(destination: Path) -> None:
+    ensure_dir(destination.parent)
+    destination.write_bytes(b"")
+
+
+def export_changed_trees(data: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or load_config()
     root = Path(data["root"])
     stamp = now_iso().replace(":", "").replace("+00:00", "Z")
     base = ensure_dir(state_dir() / "diffs" / _slug(root.name) / stamp)
-    paths = {
-        "local": base / "local-sources",
-        "origin": base / f"origin-{_slug(data['originBranch'])}",
-        "released": base / "released-sources",
-    }
-    _export_ref(root, data["refs"]["local"]["ref"], paths["local"])
-    _export_ref(root, data["refs"]["origin"]["ref"], paths["origin"])
-    _export_ref(root, data["refs"]["released"]["ref"], paths["released"])
+    pairs: list[dict[str, Any]] = []
+
+    for index, comparison in enumerate(data["comparisons"]):
+        if not comparison["files"]:
+            continue
+        pair_root = base / f"{index + 1}-{_slug(comparison['label'])}"
+        old_dir = ensure_dir(pair_root / "old")
+        new_dir = ensure_dir(pair_root / "new")
+        old_ref = comparison["from"]["sha"]
+        new_ref = comparison["to"]["sha"]
+        for item in comparison["files"]:
+            path = item["path"]
+            old_path = item.get("oldPath") or path
+            if item["status"] == "A":
+                _empty_file(old_dir / old_path)
+            else:
+                _show_file(root, old_ref, old_path, old_dir / old_path)
+            if item["status"] == "D":
+                _empty_file(new_dir / path)
+            else:
+                _show_file(root, new_ref, path, new_dir / path)
+        pairs.append(
+            {
+                "label": comparison["label"],
+                "old": str(old_dir),
+                "new": str(new_dir),
+                "files": comparison["fileCount"],
+            }
+        )
+
     manifest = {
         "schema": 1,
         "exportedAt": now_iso(),
@@ -247,42 +277,51 @@ def export_trees(data: dict[str, Any], config: dict[str, Any] | None = None) -> 
             {
                 "label": item["label"],
                 "files": item["fileCount"],
-                "ahead": item["ahead"],
-                "behind": item["behind"],
+                "fromOnly": item["fromOnly"],
+                "toOnly": item["toOnly"],
             }
             for item in data["comparisons"]
         ],
-        "paths": {key: str(value) for key, value in paths.items()},
+        "pairs": pairs,
     }
     write_json_atomic(base / "manifest.json", manifest, 0o644)
     return {
         "directory": str(base),
         "manifest": str(base / "manifest.json"),
-        "paths": {key: str(value) for key, value in paths.items()},
+        "pairs": pairs,
     }
 
 
 def open_in_zed(data: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or load_config()
-    exported = export_trees(data, config)
+    exported = export_changed_trees(data, config)
     zed = which("zed")
     if not zed:
         raise CompareError("zed CLI not found")
-    paths = exported["paths"]
-    command = [
-        zed,
-        "--diff",
-        paths["local"],
-        paths["origin"],
-        "--diff",
-        paths["origin"],
-        paths["released"],
-    ]
-    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pairs = exported["pairs"]
+    if not pairs:
+        return {
+            "ok": True,
+            "opened": False,
+            "message": "No source differences to open in Zed",
+            "export": exported,
+        }
+    commands = []
+    for pair in pairs:
+        command = [zed, "-n", "--diff", pair["old"], pair["new"]]
+        process = subprocess.Popen(
+            command,
+            cwd=str(Path(pair["old"]).parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        commands.append({"command": command, "pid": process.pid, "label": pair["label"]})
+        time.sleep(0.4)
     return {
         "ok": True,
-        "pid": process.pid,
-        "command": command,
+        "opened": True,
+        "commands": commands,
+        "command": commands[0]["command"],
         "export": exported,
     }
 

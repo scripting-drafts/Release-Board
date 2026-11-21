@@ -250,7 +250,8 @@ def cmd_compare(args: argparse.Namespace) -> int:
         for comparison in payload["comparisons"]:
             print(
                 f"\n{comparison['label']} · {comparison['fileCount']} file(s) · "
-                f"ahead {comparison['ahead']} / behind {comparison['behind']}"
+                f"{comparison['from']['ref']} is {comparison['ahead']} ahead / "
+                f"{comparison['behind']} behind {comparison['to']['ref']}"
             )
             if not comparison["files"]:
                 print("  no differences")
@@ -260,7 +261,11 @@ def cmd_compare(args: argparse.Namespace) -> int:
         for warning in payload.get("warnings", []):
             print(f"\nwarning: {warning}")
         if args.open:
-            print(f"\nopened Zed diff: {payload.get('zed', {}).get('export', {}).get('directory', '')}")
+            zed = payload.get("zed", {})
+            if zed.get("opened"):
+                print(f"\nopened Zed diff: {zed.get('export', {}).get('directory', '')}")
+            else:
+                print(f"\n{zed.get('message', 'no Zed diff opened')}")
     return 0 if payload.get("ok") else 1
 
 
