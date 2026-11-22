@@ -29,6 +29,7 @@ from .config import (
 from .gitinfo import inspect_roots
 from .launchpad import observe, summary as launchpad_summary
 from .packaging import inspect_packages
+from .slsa import verify_attestation
 from .release import (
     build_binary,
     build_source,
@@ -272,6 +273,15 @@ def cmd_compare(args: argparse.Namespace) -> int:
             else:
                 print(f"\n{zed.get('message', 'no Zed window opened')}")
     return 0 if payload.get("ok") else 1
+
+
+def cmd_slsa(args: argparse.Namespace) -> int:
+    if args.action == "verify":
+        artifacts = [Path(item) for item in args.artifact]
+        payload = verify_attestation(Path(args.attestation), artifacts)
+        _print(payload, args.json)
+        return 0 if payload.get("ok") and payload.get("signed") else 1
+    raise SystemExit("unsupported slsa action")
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -552,6 +562,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--open-comparison", type=int, default=None, help="open one comparison by index")
     p.add_argument("--open-file", default="", help="open one changed file in Zed")
     p.add_argument("--clean", action="store_true", help="remove exported diff trees")
+
+    p = add("slsa", cmd_slsa, "inspect SLSA provenance")
+    p.add_argument("--attestation", required=True)
+    p.add_argument("--artifact", action="append", default=[])
+    p.set_defaults(action="verify")
 
     p = add("check", cmd_check, "run release preflight")
     p.add_argument("--root", default="")

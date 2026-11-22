@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import ledger_file, load_config, roots
+from .slsa import verify_attestation
 from .util import git_out, now_iso, read_json, run, sha256_file, write_text_atomic
 
 
@@ -53,11 +54,18 @@ def commit_ledger(config: dict[str, Any], event: dict[str, Any]) -> dict[str, An
         relative = path.relative_to(repo)
     except ValueError:
         return {"committed": False, "reason": "ledger is outside the ledger repo"}
-    add = run(["git", "add", "--", str(relative)], cwd=repo, timeout=30)
+    attestations = path.parent / "attestations"
+    add_paths = [str(relative)]
+    if attestations.exists():
+        try:
+            add_paths.append(str(attestations.relative_to(repo)))
+        except ValueError:
+            pass
+    add = run(["git", "add", "--", *add_paths], cwd=repo, timeout=30)
     if add.returncode != 0:
         return {"committed": False, "reason": add.stderr.strip()}
     message = f"release: record {event.get('package', '?')} {event.get('version', '?')} {event.get('event', 'event')}"
-    commit = run(["git", "commit", "-m", message, "--", str(relative)], cwd=repo, timeout=60)
+    commit = run(["git", "commit", "-m", message, "--", *add_paths], cwd=repo, timeout=60)
     return {
         "committed": commit.returncode == 0,
         "reason": "" if commit.returncode == 0 else (commit.stderr or commit.stdout).strip(),
@@ -162,6 +170,27 @@ def verify_entry(entry: dict[str, Any], config: dict[str, Any]) -> dict[str, Any
         status.get("publishedVersion", "").startswith(version.split("~")[0]) if version else False,
         status.get("publishedVersion", ""),
     )
+
+    slsa = entry.get("slsa") or {}
+    attestation = Path(str(slsa.get("attestation", "")))
+    if not attestation.is_file():
+        check("slsa-attestation", False, "SLSA attestation missing")
+    else:
+        expected_hash = str(slsa.get("attestationSha256", ""))
+        check(
+            "slsa-attestation",
+            not expected_hash or sha256_file(attestation) == expected_hash,
+            str(attestation),
+        )
+        subject_paths = [Path(str(item)) for item in entry.get("artifacts", [])]
+        for key in ("changes", "dsc", "buildinfo"):
+            value = entry.get(key)
+            if value:
+                subject_paths.append(Path(str(value)))
+        verification = verify_attestation(attestation, subject_paths)
+        for item in verification.get("checks", []):
+            checks.append({"name": f"slsa:{item['name']}", "ok": item["ok"], "detail": item["detail"]})
+        check("slsa-signed", bool(verification.get("signed")), "DSSE signature")
 
     provenance = Path(f"/usr/share/doc/{package}/provenance.json")
     if provenance.is_file():

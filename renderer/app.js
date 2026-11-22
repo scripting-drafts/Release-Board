@@ -733,7 +733,7 @@ function renderTrace() {
     const table = h("table");
     const thead = h("thead");
     const hr = h("tr");
-    for (const label of ["Event", "Package", "Version", "Series", "Commit", "Recorded"]) hr.append(h("th", "", label));
+    for (const label of ["Event", "Package", "Version", "Series", "Evidence", "Commit", "Recorded"]) hr.append(h("th", "", label));
     thead.append(hr);
     table.append(thead);
     const tbody = h("tbody");
@@ -743,6 +743,7 @@ function renderTrace() {
       tr.append(h("td", "mono", entry.package || "—"));
       tr.append(h("td", "mono", entry.version || "—"));
       tr.append(h("td", "", entry.series || "—"));
+      tr.append(h("td", "", entry.slsa?.standard ? pill("SLSA", "good") : pill("legacy", "warn")));
       tr.append(h("td", "mono", (entry.commit || "").slice(0, 12) || "—"));
       tr.append(h("td", "small muted", entry.recordedAt || "—"));
       tbody.append(tr);

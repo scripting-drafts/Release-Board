@@ -1,6 +1,8 @@
-# Release ledger
-
-`ledger.jsonl` is append-only. Each line records a build, upload or publication
-event with the package version, source commit, signed tag, artifact hashes and
-Launchpad identifiers. The board commits this directory after an upload and
-after publication. Do not rewrite history.
+# Release evidence
+`ledger.jsonl` is an append-only index of build, upload and publication events.
+Each build also produces a signed **SLSA v1 provenance** attestation under
+`release/attestations/<package>/<version>/<series>/`:
+- `.intoto.jsonl` — DSSE envelope around an in-toto statement
+- `.slsa.json` — readable SLSA statement
+The ledger commits the attestation directory after upload and publication.
+Historical entries without SLSA provenance are reported as missing evidence.

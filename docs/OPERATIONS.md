@@ -64,10 +64,18 @@ bin/release-board build-source --root ~/QA-Sentinels --series "noble resolute"
 bin/release-board upload-latest --root ~/QA-Sentinels
 bin/release-board watch --root ~/QA-Sentinels
 bin/release-board trace --verify
+bin/release-board slsa --attestation <file.intoto.jsonl> --artifact <artifact>
 ```
 
 Revision selection is automatic: when the published base version matches the
 local base, the next upload uses the next `-0ubuntuN~series1` revision.
+
+## SLSA provenance
+
+Each source build writes a signed SLSA v1 attestation to
+`release/attestations/<package>/<version>/<series>/`. The DSSE envelope is the
+authoritative provenance; `.slsa.json` is the readable statement. Upload and
+`trace --verify` validate its signature, predicate type and subject hashes.
 
 ## Recovery
 

@@ -14,8 +14,11 @@ from .config import load_config, profile_for
 from .gitinfo import inspect_root
 from .launchpad import observe, status_for
 from .packaging import inspect_package
+from . import __version__
+from .slsa import create_attestation, verify_attestation
 from .trace import read_ledger, record_build, record_published, record_upload
 from .util import (
+    APP_ROOT,
     ensure_dir,
     git_out,
     now_iso,
@@ -290,7 +293,7 @@ def _prepare_tree(root: Path, series: str, revision: int, config: dict[str, Any]
         "remote": git_out(["remote", "get-url", "origin"], root),
         "clean": not git_out(["status", "--porcelain"], root),
         "builtAt": now_iso(),
-        "builder": "release-board/0.7.1",
+        "builder": f"release-board/{__version__}",
     }
     write_json_atomic(src / "debian" / "provenance.json", provenance, 0o644)
 
@@ -324,6 +327,35 @@ def _revision_for(
     if not published:
         return 1
     return _next_revision(published, base, series, jammy_native)
+
+
+def _safe_component(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.~-]+", "_", value).strip("_") or "unknown"
+
+
+def store_attestation(attestation: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    repo = Path(config.get("ledgerRepo", APP_ROOT)).expanduser()
+    if not (repo / ".git").exists():
+        return attestation
+    relative = (
+        Path("release")
+        / "attestations"
+        / _safe_component(str(attestation.get("package", "")))
+        / _safe_component(str(attestation.get("version", "")))
+        / _safe_component(str(attestation.get("series", "")))
+    )
+    destination = repo / relative
+    ensure_dir(destination)
+    stored = dict(attestation)
+    for key, suffix in (("attestation", ".intoto.jsonl"), ("statement", ".slsa.json")):
+        source = Path(str(attestation.get(key, "")))
+        if source.is_file():
+            target = destination / source.name
+            shutil.copy2(source, target)
+            stored[key] = str(target)
+            stored[f"{key}Sha256"] = sha256_file(target)
+    stored["stored"] = True
+    return stored
 
 
 def build_source(
@@ -384,12 +416,20 @@ def build_source(
             key = str(config.get("signKey", "")).strip()
             command = ["dpkg-buildpackage", "-S", "-sa"]
             command.extend([f"-k{key}"] if key else ["-us", "-uc"])
+            started_on = now_iso()
             proc = run(command, cwd=src, timeout=3600, env=env)
+            finished_on = now_iso()
             version = provenance["version"]
-            artifacts = sorted(work.glob(f"{provenance['package']}_{version}_*"))
             changes = work / f"{provenance['package']}_{version}_source.changes"
             dsc = work / f"{provenance['package']}_{version}.dsc"
             buildinfo = work / f"{provenance['package']}_{version}_source.buildinfo"
+            artifacts = sorted(
+                item
+                for item in work.iterdir()
+                if item.is_file()
+                and item.name.startswith(f"{provenance['package']}_{version}")
+                and not item.name.endswith((".intoto.jsonl", ".slsa.json"))
+            )
             record = {
                 "root": str(root),
                 "package": provenance["package"],
@@ -412,6 +452,29 @@ def build_source(
                 "artifacts": [str(item) for item in artifacts],
             }
             if proc.returncode == 0 and changes.is_file():
+                attestation = create_attestation(
+                    package=provenance["package"],
+                    version=version,
+                    base_version=provenance["baseVersion"],
+                    series=series,
+                    revision=series_revision,
+                    source_uri=str(provenance.get("remote") or f"git+{root}"),
+                    commit=provenance["commit"],
+                    tree=provenance["tree"],
+                    tag=provenance["tag"],
+                    tag_object=provenance["tagObject"],
+                    tag_verified=provenance["tagVerified"],
+                    artifacts=[item for item in artifacts if item.is_file()],
+                    command=command,
+                    started_on=started_on,
+                    finished_on=finished_on,
+                    builder_version=__version__,
+                    output_dir=work,
+                    key=key,
+                )
+                if key and not attestation.get("signed"):
+                    raise RuntimeError("SLSA attestation signing failed")
+                record["slsa"] = store_attestation(attestation, config)
                 record_build(record, config, commit=False)
                 results.append({"ok": True, "series": series, "record": record, "output": (proc.stdout + proc.stderr).strip()})
             else:
@@ -484,15 +547,39 @@ def build_binary(
     )
     try:
         src, work, provenance = _prepare_tree(root, target_series, series_revision, config)
+        started_on = now_iso()
         proc = run(["dpkg-buildpackage", "-b", "-us", "-uc"], cwd=src, timeout=3600)
-        debs = sorted(str(item) for item in work.glob("*.deb"))
+        finished_on = now_iso()
+        deb_paths = sorted(item for item in work.glob("*.deb") if item.is_file())
+        slsa = create_attestation(
+            package=provenance["package"],
+            version=provenance["version"],
+            base_version=provenance["baseVersion"],
+            series=target_series,
+            revision=series_revision,
+            source_uri=str(provenance.get("remote") or f"git+{root}"),
+            commit=provenance["commit"],
+            tree=provenance["tree"],
+            tag=provenance["tag"],
+            tag_object=provenance["tagObject"],
+            tag_verified=provenance["tagVerified"],
+            artifacts=deb_paths,
+            command=["dpkg-buildpackage", "-b", "-us", "-uc"],
+            started_on=started_on,
+            finished_on=finished_on,
+            builder_version=__version__,
+            output_dir=work,
+            key="",
+            build_type="https://github.com/scripting-drafts/Release-Board/slsa/debian-binary/v1",
+        )
         return {
             "ok": proc.returncode == 0,
             "package": provenance["package"],
             "version": provenance["version"],
             "series": target_series,
             "provenance": provenance,
-            "debs": debs,
+            "slsa": slsa,
+            "debs": [str(item) for item in deb_paths],
             "output": (proc.stdout + proc.stderr).strip(),
             "returncode": proc.returncode,
         }
@@ -527,10 +614,10 @@ def upload(
         return {"ok": False, "error": f"changes package {upload_package} does not match {package['source']}"}
     if not upload_version.startswith(package["baseVersion"]):
         return {"ok": False, "error": f"changes version {upload_version} does not match base {package['baseVersion']}"}
-    if upload_series not in profile.get("series", []):
-        return {"ok": False, "error": f"changes series {upload_series} is not configured for {upload_package}"}
     series_match = re.search(r"~([a-z]+)1$", upload_version)
     upload_series = series_match.group(1) if series_match else package.get("distribution", "")
+    if upload_series not in profile.get("series", []):
+        return {"ok": False, "error": f"changes series {upload_series} is not configured for {upload_package}"}
     revision_match = re.search(r"-0ubuntu(\d+)~", upload_version)
     upload_revision = int(revision_match.group(1)) if revision_match else 1
     verify = run(["gpg", "--batch", "--verify", str(changes)], timeout=30)
@@ -559,6 +646,29 @@ def upload(
             ),
             {},
         )
+        slsa = build_entry.get("slsa") or {}
+        if not slsa.get("attestation"):
+            return {
+                "ok": False,
+                "error": "SLSA provenance is missing for this build; rebuild before uploading",
+                "build": build_entry.get("version", ""),
+            }
+        attestation_path = Path(str(slsa.get("attestation", "")))
+        if slsa.get("attestationSha256") and attestation_path.is_file():
+            if sha256_file(attestation_path) != slsa["attestationSha256"]:
+                return {"ok": False, "error": "SLSA attestation hash mismatch"}
+        subject_paths = [Path(str(item)) for item in build_entry.get("artifacts", [])]
+        for key in ("changes", "dsc", "buildinfo"):
+            value = build_entry.get(key)
+            if value:
+                subject_paths.append(Path(str(value)))
+        verification = verify_attestation(attestation_path, subject_paths)
+        if not verification.get("ok") or not verification.get("signed"):
+            return {
+                "ok": False,
+                "error": "SLSA provenance verification failed",
+                "checks": verification.get("checks", []),
+            }
         record_upload(
             {
                 "root": str(root),
@@ -571,7 +681,13 @@ def upload(
                 "tag": build_entry.get("tag", ""),
                 "changes": str(changes),
                 "changesSha256": result["changesSha256"],
+                "dsc": build_entry.get("dsc", ""),
+                "dscSha256": build_entry.get("dscSha256", ""),
+                "buildinfo": build_entry.get("buildinfo", ""),
+                "buildinfoSha256": build_entry.get("buildinfoSha256", ""),
+                "artifacts": build_entry.get("artifacts", []),
                 "dputTarget": target,
+                "slsa": slsa,
             },
             config,
             commit=True,
@@ -634,6 +750,12 @@ def watch(
                         "tag": evidence.get("tag", ""),
                         "changes": evidence.get("changes", ""),
                         "changesSha256": evidence.get("changesSha256", ""),
+                        "dsc": evidence.get("dsc", ""),
+                        "dscSha256": evidence.get("dscSha256", ""),
+                        "buildinfo": evidence.get("buildinfo", ""),
+                        "buildinfoSha256": evidence.get("buildinfoSha256", ""),
+                        "artifacts": evidence.get("artifacts", []),
+                        "slsa": evidence.get("slsa", {}),
                         "sourceId": (final.get("publishedSource") or {}).get("id", ""),
                         "buildIds": [item.get("id") for item in final.get("builds", [])],
                         "publishedVersion": final.get("publishedVersion", ""),

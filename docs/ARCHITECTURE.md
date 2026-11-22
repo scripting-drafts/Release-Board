@@ -13,7 +13,7 @@ Dashboard; only the visual language is shared.
 | Source diff | `compare` builds changed-file trees for Local HEAD → Origin branch → Released tag, and opens only the changed files in a new Zed multi-diff window. |
 | Packaging inspector | Parses `debian/changelog`, `debian/control`, source format, version files, series policy, dput targets and the signing key. |
 | Launchpad monitor | Anonymous read-only calls to the Launchpad API for published sources and build records, cached under `~/.cache/release-board`. |
-| Traceability | Signed annotated tag plus `debian/provenance.json` included in the source and installed at `/usr/share/doc/<package>/provenance.json`; an append-only JSONL ledger records build, upload and publication events. |
+| Traceability | Signed annotated tag, **SLSA v1 provenance** (in-toto statement in a DSSE envelope) for every build, and an append-only JSONL ledger index. Attestations are stored under `release/attestations/`; `debian/provenance.json` remains the installed convenience record. |
 
 ## Build and upload flow
 
@@ -22,9 +22,13 @@ Dashboard; only the visual language is shared.
 2. `build-source` exports `git archive HEAD` to a temporary tree, rewrites the
    changelog for the target series, embeds provenance, and runs
    `dpkg-buildpackage -S -sa` with the configured key.
-3. The built `.changes`, `.dsc` and `.buildinfo` hashes are appended to the
-   ledger. Upload records the `.changes` hash and commits the ledger.
-4. `watch` polls Launchpad and records the published source and build IDs,
+3. The build produces one signed SLSA v1 attestation containing the source
+   commit, tag, build command and artifact hashes. The ledger records the
+   attestation path and hash, plus the `.changes`, `.dsc` and `.buildinfo`
+   hashes.
+4. Upload verifies the SLSA signature and subject hashes, records the `.changes`
+   hash and commits the ledger plus its attestations.
+5. `watch` polls Launchpad and records the published source and build IDs,
    committing the ledger after publication.
 
 ## Trust boundaries
