@@ -1186,7 +1186,6 @@ function renderTasks() {
   const grid = h("div", "task-grid");
   const tasks = [
     ["check", "Run preflight", "Clean tree, signing and Launchpad drift."],
-    ["bootstrap", "Generate first release", "Create Debian source metadata and the dput target for a new root."],
     ["test", "Run tests", "Execute the profile test command in the selected root."],
     ["binary", "Build local .deb", "Build a testable binary package in a temporary source tree."],
     ["build", "Build source", "Create the signed tag automatically and build source packages for every configured series."],

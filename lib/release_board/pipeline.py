@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .bootstrap import ensure_first_release
 from .config import load_config, root_entry
 from .release import (
     build_source,
@@ -156,6 +157,18 @@ def release_pipeline(
                 "repair": repaired,
                 "steps": {},
             }
+
+    first = ensure_first_release(root, config, series=series_list)
+    if first.get("action") == "bootstrapped":
+        if not first.get("ok"):
+            return {
+                "ok": False,
+                "error": f"first release setup failed: {first.get('error', '')}".strip(),
+                "steps": {},
+            }
+        emit("== first release packaging")
+    elif first.get("action") == "not-debian":
+        return {"ok": False, "error": first.get("error", "not a Debian source package"), "steps": {}}
 
     from .util import parse_dpkg_changelog
 

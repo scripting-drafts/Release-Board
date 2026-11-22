@@ -188,6 +188,41 @@ def _series(values: list[str]) -> list[str]:
     return result
 
 
+def ensure_first_release(
+    root: Path | str,
+    config: dict[str, Any] | None = None,
+    *,
+    series: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create Debian source metadata once, immediately before a first release."""
+    config = config or load_config()
+    root = Path(root).expanduser().resolve()
+    if (root / "debian" / "changelog").is_file():
+        return {"ok": True, "action": "none"}
+    entry = root_entry(root, config)
+    deployment = deployment_for(entry.get("deployment"), config)
+    kind = str(deployment.get("kind") or entry.get("deployment") or "launchpad")
+    if kind not in SOURCE_DEPLOYMENTS:
+        return {
+            "ok": False,
+            "action": "not-debian",
+            "error": (
+                f"{entry.get('name', root.name)} is not a Debian source deployment; "
+                "use the repository's native release flow"
+            ),
+        }
+    try:
+        payload = bootstrap(root, config, series=series, commit=True)
+    except BootstrapError as exc:
+        return {"ok": False, "action": "failed", "error": str(exc)}
+    return {
+        "ok": bool(payload.get("ok")),
+        "action": "bootstrapped",
+        "error": "" if payload.get("ok") else payload.get("signingKey", {}).get("message", ""),
+        "bootstrap": payload,
+    }
+
+
 def bootstrap(
     root: Path | str,
     config: dict[str, Any] | None = None,

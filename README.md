@@ -7,4 +7,4 @@ Standalone release cockpit for Debian/Ubuntu packages published to Launchpad.
 - Config: `~/.config/release-board/config.json` (mode 0600).
 - Pipeline: preflight, test, auto-tag build, push, upload, publication snapshot.
 - Docs: `docs/ARCHITECTURE.md`.
-- First release: `release-board bootstrap --root PATH` creates Debian source metadata.
+- First release: Debian source roots generate packaging/dput automatically; other repo types use their native flow.

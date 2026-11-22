@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
-from release_board.bootstrap import BootstrapError, bootstrap  # noqa: E402
+from release_board.bootstrap import BootstrapError, bootstrap, ensure_first_release  # noqa: E402
 from release_board.config import deployment_for, load_config, roots, save_config  # noqa: E402
 from release_board.compare import (  # noqa: E402
     _anomaly_paths,
@@ -34,7 +34,7 @@ from release_board.release import (  # noqa: E402
     _series_list,
 )
 from release_board.trace import append_event, read_ledger  # noqa: E402
-from release_board.util import parse_dpkg_changelog, run, series_version, split_version  # noqa: E402
+from release_board.util import git_out, parse_dpkg_changelog, run, series_version, split_version  # noqa: E402
 
 
 class VersionTests(unittest.TestCase):
@@ -575,6 +575,35 @@ class BootstrapTests(unittest.TestCase):
                 package = inspect_package(repo, reloaded)
                 self.assertEqual(package["errors"], [])
                 self.assertTrue(package["dput"]["configured"])
+
+    def test_ensure_first_release_bootstraps_only_debian_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            repo = self._repo(home)
+            env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
+            with patch.dict(os.environ, env), \
+                 patch("release_board.bootstrap._signing_key_ok",
+                       return_value=(True, "secret key present")):
+                config = load_config()
+                config["roots"] = [
+                    {"name": "Faultlab", "path": str(repo), "deployment": "launchpad"}
+                ]
+                payload = ensure_first_release(repo, config)
+                self.assertEqual(payload["action"], "bootstrapped")
+                self.assertTrue(payload["ok"])
+                self.assertTrue((repo / "debian" / "changelog").is_file())
+                self.assertFalse(git_out(["status", "--porcelain"], repo))
+
+                config["deployments"] = {"static": {"kind": "static"}}
+                other_root = home / "other"
+                other_root.mkdir()
+                other = self._repo(other_root)
+                config["roots"] = [
+                    {"name": "Faultlab", "path": str(other), "deployment": "static"}
+                ]
+                payload = ensure_first_release(other, config)
+                self.assertEqual(payload["action"], "not-debian")
+                self.assertFalse((other / "debian").exists())
 
     def test_scaffold_is_limited_to_source_deployments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
