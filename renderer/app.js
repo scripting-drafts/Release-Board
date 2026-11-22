@@ -888,6 +888,12 @@ function activeTask(root = state.taskRoot) {
   return task && task.id ? task : null;
 }
 
+function resumableFailure(pipeline) {
+  if (!pipeline || pipeline.status !== "failed" || !pipeline.currentStep) return false;
+  const step = (pipeline.steps || {})[pipeline.currentStep];
+  return Boolean(step && step.ok === false);
+}
+
 function appendConsole(text, stream, root = state.taskRoot) {
   const task = taskFor(root);
   if (!task) return;
@@ -1101,9 +1107,11 @@ function renderTasks() {
   const stopped = state.stoppedPipelines.has(state.taskRoot);
   const pipelineTask = ["pipeline", "pipelineResume"].includes(selectedTask?.name);
   const stopping = taskActive && stopped && pipelineTask;
-  const resumablePipeline = ["stopped", "blocked", "failed"].includes(pipeline.status);
+  const resumablePipeline = ["stopped", "blocked"].includes(pipeline.status);
+  const failedResumable = resumableFailure(pipeline);
   const canPause = taskActive && !paused && !stopping;
-  const canResume = paused || (!taskActive && (stopped || resumablePipeline));
+  const canResume = paused ||
+    (!taskActive && (stopped || resumablePipeline || failedResumable));
   const pauseResumeLabel = canResume || stopping || !taskActive ? "Resume" : "Pause";
   const startStop = button(
     taskActive ? "Stop" : "Start",
