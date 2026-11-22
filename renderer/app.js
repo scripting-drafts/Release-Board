@@ -190,10 +190,19 @@ function setView(view, fromUser = false) {
 }
 
 function renderSidebar() {
-  const ledger = state.board?.config?.ledger || "";
-  const ledgerNode = document.getElementById("ledger-path");
-  ledgerNode.textContent = ledger ? `Ledger · ${ledger.split("/").slice(-2).join("/")}` : "";
-  ledgerNode.title = ledger;
+  const footer = document.getElementById("app-about");
+  if (!footer) return;
+  const version = state.config?.version || "";
+  const link = h("a", "link small", version ? `About · ${version}` : "About");
+  link.href = "https://github.com/scripting-drafts/Release-Board";
+  link.title = version ? `About Release Board ${version}` : "About Release Board";
+  link.addEventListener("click", async (event) => {
+    event.preventDefault();
+    const result = await api.about();
+    if (!result.ok) notice(result.error || "could not open the project page", true);
+  });
+  clear(footer);
+  footer.append(link);
 }
 
 function sectionTitle(text, action) {

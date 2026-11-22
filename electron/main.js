@@ -10,6 +10,7 @@ const APP_ROOT = path.resolve(__dirname, "..");
 const CLI = path.join(APP_ROOT, "bin", "release-board");
 const ICON_DIR = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), "release-board");
 const TASK_TIMEOUT = 6 * 60 * 60 * 1000;
+const APP_HOMEPAGE = "https://github.com/scripting-drafts/Release-Board";
 const screenshotTarget = (process.argv.find((arg) => arg.startsWith("--screenshot=")) || "").split("=", 2)[1] || "";
 const screenshotView = (process.argv.find((arg) => arg.startsWith("--view=")) || "").split("=", 2)[1] || "";
 const screenshotClick = (process.argv.find((arg) => arg.startsWith("--click=")) || "").split("=", 2)[1] || "";
@@ -321,6 +322,11 @@ function registerIpc() {
     const config = await getConfig();
     if (!safeExternal(url, config)) return { ok: false, error: "blocked URL" };
     await shell.openExternal(url);
+    return { ok: true };
+  });
+
+  ipcMain.handle("app:about", async () => {
+    await shell.openExternal(APP_HOMEPAGE);
     return { ok: true };
   });
 
