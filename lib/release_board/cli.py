@@ -119,7 +119,7 @@ def cmd_git(args: argparse.Namespace) -> int:
     if args.root:
         root = _resolve_root(args.root, config)
         entries = [{"name": root.name, "path": str(root)}]
-    data = inspect_roots(entries, fetch=args.fetch)
+    data = inspect_roots(entries, fetch=args.fetch, status_only=args.status_only)
     if args.json:
         _print(data, True)
     else:
@@ -541,6 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("git", cmd_git, "inspect local and remote Git state")
     p.add_argument("--root", default="")
     p.add_argument("--fetch", action="store_true")
+    p.add_argument("--status-only", action="store_true", help="skip branch and package inspection")
 
     p = add("pkg", cmd_pkg, "inspect Debian metadata and versions")
     p.add_argument("--root", default="")

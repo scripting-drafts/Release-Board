@@ -973,10 +973,24 @@ async function refreshGitStatus() {
     const before = JSON.stringify(
       (state.board.roots || []).map((root) => [root.clean, root.dirty, root.ahead, root.behind, root.head?.sha])
     );
-    const result = await api.git({ fetch: false });
+    const result = await api.git({ fetch: false, statusOnly: true });
     if (!result.ok || !result.data) return;
     const byPath = new Map((result.data.roots || []).map((root) => [root.path, root]));
-    state.board.roots = (state.board.roots || []).map((root) => byPath.get(root.path) || root);
+    state.board.roots = (state.board.roots || []).map((root) => {
+      const fresh = byPath.get(root.path);
+      if (!fresh) return root;
+      return {
+        ...root,
+        branch: fresh.branch,
+        upstream: fresh.upstream,
+        ahead: fresh.ahead,
+        behind: fresh.behind,
+        dirty: fresh.dirty,
+        untracked: fresh.untracked,
+        clean: fresh.clean,
+        head: fresh.head,
+      };
+    });
     state.board.summary = state.board.summary || {};
     state.board.summary.dirtyRoots = result.data.summary.dirty;
     const after = JSON.stringify(

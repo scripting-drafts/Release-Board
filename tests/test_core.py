@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
+from release_board.gitinfo import inspect_root  # noqa: E402
 from release_board.compare import (  # noqa: E402
     _anomaly_paths,
     _make_anomaly_repo,
@@ -287,6 +288,23 @@ class CompareTests(unittest.TestCase):
             self.assertFalse(data["refs"]["released"]["available"])
             self.assertEqual(len(data["comparisons"]), 1)
             self.assertIn("no release tag", " ".join(data["warnings"]))
+
+
+class GitTests(unittest.TestCase):
+    def test_status_only_inspection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            run(["git", "init", "-q", "-b", "main"], cwd=repo)
+            run(["git", "config", "user.name", "Test"], cwd=repo)
+            run(["git", "config", "user.email", "test@example.invalid"], cwd=repo)
+            (repo / "file.txt").write_text("one\n", encoding="utf-8")
+            run(["git", "add", "file.txt"], cwd=repo)
+            run(["git", "commit", "-qm", "one"], cwd=repo)
+            data = inspect_root(repo, status_only=True)
+            self.assertTrue(data["clean"])
+            self.assertEqual(data["dirty"], 0)
+            self.assertNotIn("branches", data)
+            self.assertNotIn("tags", data)
 
 
 class LedgerTests(unittest.TestCase):
