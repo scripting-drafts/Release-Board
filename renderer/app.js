@@ -953,16 +953,6 @@ function renderTasks() {
 
   const header = h("div", "section-title");
   header.append(h("h2", "", "Output"));
-  const clearButton = button("Clear", "subtle", clearConsole);
-  const stopButton = button("Stop task", "danger", async () => {
-    if (!state.taskId) {
-      notice("No task is running.", true);
-      return;
-    }
-    const result = await api.cancelTask(state.taskId);
-    notice(result.ok ? "Stopping task…" : result.error || "could not stop task", !result.ok);
-  });
-  header.append(clearButton, stopButton);
   node.append(header);
   const consoleNode = h("div", "console");
   consoleNode.id = "task-console";
