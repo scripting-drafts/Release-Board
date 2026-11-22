@@ -101,17 +101,13 @@ button {
   width: 42px;
   height: 42px;
   color: var(--accent);
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  background: var(--panel-2);
   display: grid;
   place-items: center;
-  box-shadow: inset 0 0 22px rgba(var(--accent-rgb), 0.08);
 }
 
 .mark svg {
-  width: 30px;
-  height: 30px;
+  width: 100%;
+  height: 100%;
 }
 
 .brand-title {
