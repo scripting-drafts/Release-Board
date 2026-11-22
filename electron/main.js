@@ -39,6 +39,7 @@ function syncLauncherIcon(dark = nativeTheme.shouldUseDarkColors) {
   }
 }
 const running = new Map();
+const paused = new Set();
 let mainWindow = null;
 let configCache = null;
 let configCacheAt = 0;
@@ -334,6 +335,7 @@ function registerIpc() {
     child.on("error", (error) => send(`${error.message}\n`, "stderr"));
     child.on("close", (code, signal) => {
       running.delete(id);
+      paused.delete(id);
       if (!event.sender.isDestroyed()) {
         event.sender.send("task:done", { id, code, signal });
       }
@@ -341,15 +343,74 @@ function registerIpc() {
     return { ok: true, id };
   });
 
+  ipcMain.handle("task:pause", async (_event, id) => {
+    const child = running.get(String(id));
+    if (!child) return { ok: false, error: "task not running" };
+    try {
+      if (process.platform === "win32") {
+        return { ok: false, error: "pause is not supported on Windows" };
+      }
+      process.kill(-child.pid, "SIGSTOP");
+      paused.add(String(id));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error.message || error) };
+    }
+  });
+
+  ipcMain.handle("task:resume", async (_event, id) => {
+    const child = running.get(String(id));
+    if (!child) return { ok: false, error: "task not running" };
+    try {
+      if (process.platform === "win32") {
+        return { ok: false, error: "resume is not supported on Windows" };
+      }
+      process.kill(-child.pid, "SIGCONT");
+      paused.delete(String(id));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error.message || error) };
+    }
+  });
+
+  ipcMain.handle("pipeline:status", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    return cli(["pipeline", "--status", "--root", root, "--json"], 30000);
+  });
+
+  ipcMain.handle("pipeline:resolve", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    const status = await cli(["pipeline", "--status", "--root", root, "--json"], 30000);
+    const state = status.data?.state || {};
+    const conflicts = Array.isArray(state.conflicts) ? state.conflicts : [];
+    const paths = conflicts.length
+      ? conflicts.map((item) => path.join(root, item))
+      : [root];
+    const child = spawn("zed", ["-n", ...paths], {
+      cwd: root,
+      stdio: "ignore",
+      detached: false,
+    });
+    child.on("error", () => {});
+    return { ok: true, opened: true, conflicts, paths };
+  });
+
   ipcMain.handle("task:cancel", async (_event, id) => {
     const child = running.get(String(id));
     if (!child) return { ok: false, error: "task not running" };
     try {
-      if (process.platform !== "win32") process.kill(-child.pid, "SIGTERM");
-      else child.kill("SIGTERM");
+      if (process.platform !== "win32") {
+        if (paused.has(String(id))) process.kill(-child.pid, "SIGCONT");
+        process.kill(-child.pid, "SIGTERM");
+      } else {
+        child.kill("SIGTERM");
+      }
     } catch {
       child.kill("SIGTERM");
     }
+    paused.delete(String(id));
     return { ok: true };
   });
 }

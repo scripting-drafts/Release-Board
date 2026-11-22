@@ -174,6 +174,8 @@ def release_pipeline(
             emit(f"== {name} (already complete)")
             return {"ok": True}
         emit(f"== {name}")
+        state["currentStep"] = name
+        save_state(root, config, state)
         try:
             result = action()
         except PipelineBlocked as exc:
@@ -187,6 +189,7 @@ def release_pipeline(
             save_state(root, config, state)
             raise
         ok = bool(result.get("ok", True)) if isinstance(result, dict) else bool(result)
+        state["currentStep"] = ""
         state["steps"][name] = {
             "ok": ok,
             "at": now_iso(),
@@ -215,6 +218,7 @@ def release_pipeline(
         if check_publication:
             step("publication", lambda: watch(root, series_list, config, once=True))
         state["status"] = "completed"
+        state["currentStep"] = ""
         state["completedAt"] = now_iso()
         state["conflicts"] = []
         save_state(root, config, state)

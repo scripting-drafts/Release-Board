@@ -20,6 +20,10 @@ contextBridge.exposeInMainWorld("releaseBoard", {
   confirm: (request) => ipcRenderer.invoke("confirm:ask", request),
   runTask: (request) => ipcRenderer.invoke("task:run", request),
   cancelTask: (id) => ipcRenderer.invoke("task:cancel", id),
+  pauseTask: (id) => ipcRenderer.invoke("task:pause", id),
+  resumeTask: (id) => ipcRenderer.invoke("task:resume", id),
+  pipelineStatus: (options = {}) => ipcRenderer.invoke("pipeline:status", options),
+  resolveConflicts: (options = {}) => ipcRenderer.invoke("pipeline:resolve", options),
   onTaskOutput: (callback) => {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on("task:output", handler);

@@ -82,8 +82,10 @@ release-board pipeline --root ~/QA-Sentinels --status
 release-board pipeline --root ~/QA-Sentinels --resume --confirm
 ```
 
-The app's **Stop task** button terminates the whole task process group. A
-pipeline stopped this way can be resumed.
+The app's pipeline panel provides **Start**, **Pause**, **Stop**, **Resume** and
+**Resolve conflicts**. Pause suspends the task process group; Resume continues
+it. Stop terminates the group, and the saved state can be resumed. Resolve
+conflicts opens the conflicted files in Zed.
 
 If the sync step finds remote commits, it rebases before building. A rebase
 conflict blocks the pipeline and records the conflicted paths. Resolve them,

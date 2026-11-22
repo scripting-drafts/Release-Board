@@ -110,6 +110,7 @@ function setView(view) {
   document.getElementById("view-title").textContent = title;
   document.getElementById("view-subtitle").textContent = subtitle;
   renderView(view);
+  if (view === "tasks") loadPipelineStatus(false);
 }
 
 function renderSidebar() {
@@ -830,21 +831,113 @@ function renderTasks() {
   state.taskRoot = select.value;
   select.addEventListener("change", () => {
     state.taskRoot = select.value;
+    state.pipelineData = null;
+    loadPipelineStatus();
   });
   label.append(select);
   toolbar.append(label);
   node.append(toolbar);
 
+  const pipeline = state.pipelineData?.state || {};
+  const pipelineStatus = state.pipelinePaused
+    ? "paused"
+    : state.taskId && pipeline.status === "running"
+      ? "running"
+      : pipeline.status || "idle";
+  const panel = h("div", "card pipeline-panel");
+  const panelHead = h("div", "card-head");
+  const panelTitle = h("div");
+  panelTitle.append(h("h3", "", "Release pipeline"));
+  panelTitle.append(h("div", "card-sub", "Start, pause, stop, resume, or resolve a blocked step."));
+  panelHead.append(panelTitle, pill(pipelineStatus, statusKind(pipelineStatus)));
+  panel.append(panelHead);
+  panel.append(
+    kv([
+      ["Package", pipeline.package ? `${pipeline.package} ${pipeline.version || ""}` : "—"],
+      ["Step", pipeline.currentStep || "—"],
+      ["Updated", pipeline.updatedAt || "—"],
+    ])
+  );
+  if (pipeline.conflicts?.length) {
+    const conflicts = h("div", "card-section");
+    conflicts.append(h("div", "card-section-title", "Conflicts"));
+    for (const file of pipeline.conflicts) conflicts.append(h("div", "issue bad", file));
+    panel.append(conflicts);
+  }
+  const actions = h("div", "toolbar card-actions");
+  const taskActive = Boolean(state.taskId);
+  const canResume = state.pipelinePaused || ["stopped", "blocked", "failed"].includes(pipeline.status);
+  const start = button("Start", "primary", async () => {
+    if (taskActive) return;
+    state.pipelinePaused = false;
+    await runTask("pipeline");
+    loadPipelineStatus();
+  });
+  const pause = button("Pause", "ghost", async () => {
+    if (!state.taskId || state.pipelinePaused) return;
+    const result = await api.pauseTask(state.taskId);
+    if (!result.ok) {
+      notice(result.error || "could not pause task", true);
+      return;
+    }
+    state.pipelinePaused = true;
+    notice("Pipeline paused.");
+    renderTasks();
+  });
+  const stop = button("Stop", "danger", async () => {
+    if (!state.taskId) return;
+    const result = await api.cancelTask(state.taskId);
+    if (!result.ok) {
+      notice(result.error || "could not stop task", true);
+      return;
+    }
+    state.pipelinePaused = false;
+    notice("Stopping pipeline…");
+    loadPipelineStatus();
+  });
+  const resume = button("Resume", "ghost", async () => {
+    if (state.taskId && state.pipelinePaused) {
+      const result = await api.resumeTask(state.taskId);
+      if (!result.ok) {
+        notice(result.error || "could not resume task", true);
+        return;
+      }
+      state.pipelinePaused = false;
+      notice("Pipeline resumed.");
+      renderTasks();
+      return;
+    }
+    state.pipelinePaused = false;
+    await runTask("pipelineResume");
+    loadPipelineStatus();
+  });
+  const resolve = button("Resolve conflicts", "ghost", async () => {
+    const result = await api.resolveConflicts({ root: state.taskRoot });
+    if (!result.ok) {
+      notice(result.error || "could not open conflicts", true);
+      return;
+    }
+    notice(result.conflicts?.length ? "Opened conflicted files in Zed." : "Opened the repository in Zed.");
+  });
+  start.disabled = taskActive;
+  pause.disabled = !taskActive || state.pipelinePaused;
+  stop.disabled = !taskActive;
+  resume.disabled = !canResume && !taskActive;
+  resolve.disabled = !pipeline.conflicts?.length && pipeline.status !== "blocked";
+  actions.append(start, pause, stop, resume, resolve);
+  panel.append(actions);
+  node.append(panel);
+
+  const manualTitle = h("div", "section-title");
+  manualTitle.append(h("h2", "", "Manual tasks"));
+  node.append(manualTitle);
   const grid = h("div", "task-grid");
   const tasks = [
-    ["check", "Run preflight", "Clean tree, upstream sync, signing and Launchpad drift."],
+    ["check", "Run preflight", "Clean tree, signing and Launchpad drift."],
     ["test", "Run tests", "Execute the profile test command in the selected root."],
     ["binary", "Build local .deb", "Build a testable binary package in a temporary source tree."],
     ["build", "Build source", "Create the signed tag automatically and build source packages for every configured series."],
-    ["push", "Push main + tag", "Push the release branch and signed tag to origin."],
-    ["pipeline", "Run release pipeline", "Preflight, test, build, push, upload and take a publication snapshot."],
-    ["pipelineResume", "Resume pipeline", "Continue from the last incomplete or conflict-blocked step."],
-    ["pipelineStatus", "Pipeline status", "Show the saved pipeline state and current step."],
+    ["push", "Push main + tag", "Push the release branch and signed tag to the configured remote."],
     ["upload", "Upload latest", "Upload built source changes files after confirmation."],
     ["watch", "Check publication", "Read the current Launchpad publication state once."],
   ];
@@ -1067,6 +1160,22 @@ async function refresh(withLaunchpad = false, forceConfig = false) {
   if (state.view !== "settings") renderView(state.view);
 }
 
+async function loadPipelineStatus(rerender = true) {
+  if (state.pipelineLoading || !state.taskRoot) return;
+  state.pipelineLoading = true;
+  try {
+    const before = JSON.stringify(state.pipelineData?.state || null);
+    const result = await api.pipelineStatus({ root: state.taskRoot });
+    if (result.ok && result.data) {
+      state.pipelineData = result.data;
+      const after = JSON.stringify(state.pipelineData?.state || null);
+      if (rerender && state.view === "tasks" && before !== after) renderTasks();
+    }
+  } finally {
+    state.pipelineLoading = false;
+  }
+}
+
 async function runTask(name) {
   if (state.taskId) {
     notice("A task is already running. Cancel it first.", true);
@@ -1130,7 +1239,9 @@ async function runTask(name) {
     return;
   }
   state.taskId = result.id;
+  state.pipelinePaused = false;
   notice("");
+  if (name === "pipeline" || name === "pipelineResume") loadPipelineStatus();
 }
 
 async function main() {
@@ -1144,9 +1255,11 @@ async function main() {
   api.onTaskDone((payload) => {
     if (payload.id !== state.taskId) return;
     state.taskId = null;
+    state.pipelinePaused = false;
     appendConsole(`\n[task finished: ${payload.code === 0 ? "success" : `exit ${payload.code}`}]\n`, payload.code === 0 ? "stdout" : "stderr");
     notice(payload.code === 0 ? "Task finished." : `Task exited with ${payload.code}.`, payload.code !== 0);
     refresh(false);
+    loadPipelineStatus();
   });
 
   const configResult = await api.config();
@@ -1156,6 +1269,9 @@ async function main() {
     if (!state.taskId) refresh(false);
   }, Math.max(15, Number(state.config?.refreshSeconds || 60)) * 1000);
   state.gitTimer = setInterval(refreshGitStatus, 5000);
+  state.pipelineTimer = setInterval(() => {
+    if (state.view === "tasks") loadPipelineStatus();
+  }, 3000);
   window.addEventListener("focus", refreshGitStatus);
   setView("overview");
 }
