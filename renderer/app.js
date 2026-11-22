@@ -495,13 +495,6 @@ function renderCompare() {
   originLabel.append(originSelect);
   toolbar.append(originLabel);
 
-  const recompute = button("Recompute", "ghost", () => {
-    state.compareData = null;
-    state.compareError = "";
-    renderCompare();
-  });
-  const open = button("Open changed files", "primary", () => loadCompare(state.compareRoot, true));
-  toolbar.append(recompute, open);
   node.append(toolbar);
 
   if (state.compareLoading) {
@@ -513,7 +506,7 @@ function renderCompare() {
     return;
   }
   if (!state.compareData) {
-    loadCompare(state.compareRoot, false);
+    loadCompare(state.compareRoot);
     return;
   }
 
@@ -585,16 +578,14 @@ async function openCompareFile(index, path) {
   notice(zed.opened ? `Opened ${path} in Zed.` : zed.message || "No file diff to open.");
 }
 
-async function loadCompare(root, openInZed) {
+async function loadCompare(root) {
   if (!root || state.compareLoading) return;
   const origin = state.compareOrigin || "main";
   state.compareLoading = true;
   state.compareError = "";
   renderCompare();
   try {
-    const result = openInZed
-      ? await api.compareOpen({ root, origin })
-      : await api.compare({ root, origin });
+    const result = await api.compare({ root, origin });
     if (state.compareRoot !== root) return;
     if (!result.ok || !result.data) {
       state.compareError = result.error || "comparison failed";
@@ -602,10 +593,6 @@ async function loadCompare(root, openInZed) {
       return;
     }
     state.compareData = result.data;
-    if (openInZed) {
-      const zed = result.data.zed || {};
-      notice(zed.opened ? "Opened source tree diff in Zed." : zed.message || "No source differences to open.");
-    }
   } finally {
     state.compareLoading = false;
     renderCompare();

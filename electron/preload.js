@@ -6,7 +6,6 @@ contextBridge.exposeInMainWorld("releaseBoard", {
   board: (options = {}) => ipcRenderer.invoke("board:get", options),
   git: (options = {}) => ipcRenderer.invoke("git:get", options),
   compare: (options = {}) => ipcRenderer.invoke("compare:get", options),
-  compareOpen: (options = {}) => ipcRenderer.invoke("compare:open", options),
   compareSources: (options = {}) => ipcRenderer.invoke("compare:openSources", options),
   compareComparison: (options = {}) => ipcRenderer.invoke("compare:openComparison", options),
   compareFile: (options = {}) => ipcRenderer.invoke("compare:openFile", options),

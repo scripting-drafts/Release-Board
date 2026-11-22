@@ -203,13 +203,6 @@ function registerIpc() {
     return cli(["compare", "--json", "--root", root, "--origin", origin], 180000);
   });
 
-  ipcMain.handle("compare:open", async (_event, options = {}) => {
-    const config = await getConfig();
-    const root = validateRoot(options.root, config);
-    const origin = /^[A-Za-z0-9._/-]+$/.test(String(options.origin || "main")) ? String(options.origin || "main") : "main";
-    return cli(["compare", "--json", "--open", "--root", root, "--origin", origin], 300000);
-  });
-
 
   ipcMain.handle("compare:openSources", async (_event, options = {}) => {
     const config = await getConfig();
