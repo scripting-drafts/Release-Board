@@ -183,6 +183,7 @@ function setView(view, fromUser = false) {
   const [title, subtitle] = titles[view] || ["Release Board", ""];
   document.getElementById("view-title").textContent = title;
   document.getElementById("view-subtitle").textContent = subtitle;
+  document.getElementById("topbar").classList.toggle("hidden", view === "overview");
   renderView(view);
   if (view === "tasks") loadPipelineStatus();
   if (view === "compare" && state.compareRoot) loadCompare(state.compareRoot, true);
@@ -193,13 +194,6 @@ function renderSidebar() {
   const ledgerNode = document.getElementById("ledger-path");
   ledgerNode.textContent = ledger ? `Ledger · ${ledger.split("/").slice(-2).join("/")}` : "";
   ledgerNode.title = ledger;
-}
-
-function stat(value, label, kind = "") {
-  const node = h("div", `stat ${kind}`.trim());
-  node.append(h("div", "value", value));
-  node.append(h("div", "label", label));
-  return node;
 }
 
 function sectionTitle(text, action) {
@@ -264,16 +258,6 @@ function renderOverview() {
     node.append(h("div", "card muted", "No release data yet."));
     return;
   }
-  const summary = board.summary || {};
-  const cards = h("div", "grid cards");
-  cards.append(stat(summary.published ?? 0, "Published series", "good"));
-  cards.append(stat(summary.building ?? 0, "Building / pending", "warn"));
-  cards.append(stat(summary.failed ?? 0, "Failed builds", "bad"));
-  cards.append(stat(summary.missing ?? 0, "Missing series"));
-  cards.append(stat(summary.dirtyRoots ?? 0, "Dirty roots", summary.dirtyRoots ? "warn" : ""));
-  cards.append(stat(summary.packagingErrors ?? 0, "Packaging errors", summary.packagingErrors ? "bad" : ""));
-  cards.append(stat(summary.traceRows ?? 0, "Trace-backed series", summary.traceRows ? "good" : ""));
-  node.append(cards);
 
   node.append(sectionTitle("Roots"));
   const rootGrid = h("div", "grid two");

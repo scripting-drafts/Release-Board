@@ -367,40 +367,6 @@ button:disabled {
   border-color: var(--line);
 }
 
-.stat {
-  background: var(--panel);
-  border: 1px solid var(--line-soft);
-  border-radius: 14px;
-  padding: 15px 16px;
-}
-
-.stat .value {
-  font-size: 28px;
-  font-weight: 680;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-}
-
-.stat .label {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  margin-top: 7px;
-}
-
-.stat.good .value {
-  color: var(--accent);
-}
-
-.stat.warn .value {
-  color: var(--amber);
-}
-
-.stat.bad .value {
-  color: var(--red);
-}
-
 .card-head {
   display: flex;
   align-items: flex-start;
