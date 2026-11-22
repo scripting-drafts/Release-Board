@@ -205,13 +205,6 @@ function renderSidebar() {
   footer.append(link);
 }
 
-function sectionTitle(text, action) {
-  const node = h("div", "section-title");
-  node.append(h("h2", "", text));
-  if (action) node.append(action);
-  return node;
-}
-
 function kv(rows) {
   const list = h("dl", "kv");
   for (const [key, value] of rows) {
@@ -268,7 +261,6 @@ function renderOverview() {
     return;
   }
 
-  node.append(sectionTitle("Roots"));
   const rootGrid = h("div", "grid two");
   for (const root of board.roots || []) {
     const card = h("div", "card");
@@ -301,7 +293,6 @@ function renderOverview() {
   }
   node.append(rootGrid);
 
-  node.append(sectionTitle("Package matrix"));
   const card = h("div", "card scroll-x");
   const table = h("table");
   const thead = h("thead");
