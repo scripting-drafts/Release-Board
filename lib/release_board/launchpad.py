@@ -13,7 +13,7 @@ from .config import deployment_for, profile_for, roots
 from .util import cache_dir, now_iso, read_json, write_json_atomic
 
 API = "https://api.launchpad.net/1.0"
-USER_AGENT = "release-board/0.9.13 (+local read-only monitor)"
+USER_AGENT = "release-board/0.9.14 (+local read-only monitor)"
 
 
 def _fetch(url: str, timeout: int = 30) -> dict[str, Any]:
@@ -95,24 +95,54 @@ def fetch_archive(user: str, ppa: str, api_base: str, web_base: str) -> dict[str
     return result
 
 
+def _expand_base(template: str, user: str) -> str:
+    try:
+        return template.format(user=user)
+    except (KeyError, ValueError):
+        return template
+
+
+def _deployment_target(name: str | None, config: dict[str, Any]) -> dict[str, str]:
+    deployment = deployment_for(name, config)
+    environment = str(name or "launchpad")
+    user = str(deployment.get("user") or config.get("launchpadUser", "toomanypatterns"))
+    api_base = str(deployment.get("api") or API)
+    archive_base = _expand_base(
+        str(deployment.get("archive") or "https://ppa.launchpadcontent.net/{user}"), user
+    )
+    web_base = _expand_base(
+        str(deployment.get("web") or "https://launchpad.net/~{user}/+archive/ubuntu"), user
+    ).rstrip("/")
+    return {
+        "environment": environment,
+        "user": user,
+        "api": api_base,
+        "archive": archive_base,
+        "web": web_base,
+    }
+
+
+def _targets(config: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Return the deployment target for every monitored PPA."""
+    targets: dict[str, dict[str, str]] = {}
+    for entry in roots(config):
+        source = _detect_source(Path(entry["path"]), config)
+        ppa = str(profile_for(source, config).get("ppa") or "")
+        if ppa:
+            targets.setdefault(ppa, _deployment_target(entry.get("deployment"), config))
+    default_target = _deployment_target("launchpad", config)
+    for known in ("qa-dashboard", "qa-sentinels", "ubuntu-backup"):
+        targets.setdefault(known, default_target)
+    return targets
+
+
 def observe(force: bool = False, config: dict[str, Any] | None = None) -> dict[str, Any]:
     from .config import load_config
 
     config = config or load_config()
-    deployment = deployment_for("launchpad", config)
-    user = str(deployment.get("user") or config.get("launchpadUser", "toomanypatterns"))
-    api_base = str(deployment.get("api") or API)
-    web_base = str(deployment.get("web") or "https://launchpad.net/~{user}/+archive/ubuntu").format(user=user).rstrip("/")
-    ppas = sorted(
-        {
-            str(profile_for(_detect_source(Path(entry["path"]), config), config).get("ppa"))
-            for entry in roots(config)
-        }
-    )
-    ppas = [ppa for ppa in ppas if ppa]
-    for known in ("qa-dashboard", "qa-sentinels", "ubuntu-backup"):
-        if known not in ppas:
-            ppas.append(known)
+    targets = _targets(config)
+    ppas = sorted(targets)
+    default_target = _deployment_target("launchpad", config)
     cache_path = cache_dir() / "launchpad.json"
     cached = read_json(cache_path, {}) or {}
     age = 10**9
@@ -126,27 +156,41 @@ def observe(force: bool = False, config: dict[str, Any] | None = None) -> dict[s
             age = 10**9
     ttl = max(15, int(config.get("refreshSeconds", 60)))
     cached_archives = cached.get("archives") or {}
-    same_deployment = (
-        (cached.get("deployment") or {}).get("user") == user
-        and (cached.get("deployment") or {}).get("api") == api_base
-    )
+    target_signature = {ppa: targets[ppa] for ppa in ppas}
+    same_targets = cached.get("targets") == target_signature
     if (
         not force
-        and same_deployment
+        and same_targets
         and cached_archives
         and age < ttl
         and all(ppa in cached_archives for ppa in ppas)
     ):
         return cached | {"cached": True, "ageSeconds": int(age)}
 
-    archives = dict(cached.get("archives", {})) if not force else {}
+    stale_all = force or not same_targets or age >= ttl
+    archives = (
+        {ppa: cached_archives[ppa] for ppa in ppas if ppa in cached_archives}
+        if not force
+        else {}
+    )
     for ppa in ppas:
-        if force or not same_deployment or ppa not in archives or not archives[ppa].get("ok"):
-            archives[ppa] = fetch_archive(user, ppa, api_base, web_base)
+        target = targets[ppa]
+        if stale_all or ppa not in archives or not archives[ppa].get("ok"):
+            archive = fetch_archive(target["user"], ppa, target["api"], target["web"])
+            archive["environment"] = target["environment"]
+            archive["user"] = target["user"]
+            archives[ppa] = archive
     payload = {
-        "schema": 1,
-        "user": user,
-        "deployment": {"user": user, "api": api_base, "web": web_base},
+        "schema": 2,
+        "user": default_target["user"],
+        "deployment": {
+            "environment": default_target["environment"],
+            "user": default_target["user"],
+            "api": default_target["api"],
+            "archive": default_target["archive"],
+            "web": default_target["web"],
+        },
+        "targets": target_signature,
         "fetchedAt": now_iso(),
         "archives": archives,
         "cached": False,

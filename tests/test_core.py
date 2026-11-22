@@ -20,7 +20,7 @@ from release_board.compare import (  # noqa: E402
     _tree,
     compare_root,
 )
-from release_board.launchpad import _source_entry, status_for  # noqa: E402
+from release_board.launchpad import _source_entry, _targets, status_for  # noqa: E402
 from release_board.packaging import parse_control  # noqa: E402
 from release_board.pipeline import release_pipeline  # noqa: E402
 from release_board.release import (  # noqa: E402
@@ -406,6 +406,37 @@ class ConfigTests(unittest.TestCase):
         deployment = deployment_for("staging", config)
         self.assertEqual(deployment["user"], "staging-user")
         self.assertEqual(deployment["api"], "https://example.invalid/api")
+
+    def test_root_deployment_targets(self) -> None:
+        config = {
+            "roots": [
+                {
+                    "name": "Demo",
+                    "path": "/tmp/demo",
+                    "deployment": "staging",
+                }
+            ],
+            "deployments": {
+                "launchpad": {
+                    "user": "main-user",
+                    "api": "https://api.launchpad.net/1.0",
+                    "web": "https://launchpad.net/~{user}/+archive/ubuntu",
+                },
+                "staging": {
+                    "user": "staging-user",
+                    "api": "https://staging.example.invalid/api",
+                    "web": "https://staging.example.invalid/~{user}",
+                },
+            },
+            "launchpadUser": "fallback",
+        }
+        with patch("release_board.launchpad._detect_source", return_value="demo"):
+            targets = _targets(config)
+        self.assertEqual(targets["demo"]["environment"], "staging")
+        self.assertEqual(targets["demo"]["user"], "staging-user")
+        self.assertEqual(targets["demo"]["api"], "https://staging.example.invalid/api")
+        self.assertEqual(targets["qa-dashboard"]["environment"], "launchpad")
+        self.assertEqual(targets["qa-dashboard"]["user"], "main-user")
 
     def test_stored_hosts_and_deployments_replace_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

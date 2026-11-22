@@ -761,7 +761,13 @@ function renderLaunchpad() {
     const head = h("div", "card-head");
     const left = h("div");
     left.append(h("h3", "", pkg.source));
-    left.append(h("div", "card-sub", `${pkg.ppa || (pkg.series || [])[0]?.ppa || ""} · ${pkg.baseVersion}`));
+    left.append(
+      h(
+        "div",
+        "card-sub",
+        `${pkg.ppa || (pkg.series || [])[0]?.ppa || ""} · ${pkg.environment || "launchpad"} · ${pkg.baseVersion}`
+      )
+    );
     head.append(left);
     card.append(head);
     const table = h("table");
@@ -1300,7 +1306,7 @@ function renderSettings() {
   const deploymentCard = h("div", "card");
   deploymentCard.append(h("h3", "", "Deployment environments"));
   deploymentCard.append(
-    h("div", "card-sub", "Upload and monitoring targets. {user} expands to the environment user.")
+    h("div", "card-sub", "Monitoring endpoints and external links. {user} expands to the environment user.")
   );
   const deploymentBox = h("div", "stack card-block");
   deploymentBox.id = "settings-deployments";

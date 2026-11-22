@@ -100,7 +100,8 @@ run `git rebase --continue`, then resume the pipeline.
 Settings exposes every named repository host and every deployment
 environment. Each root selects a Git remote, a repository host and a deployment
 environment. Environments define their kind, user, API base, archive base and
-web base; `{user}` expands to the environment user. Hosts and environments can
+web base; `{user}` expands to the environment user. The Launchpad monitor
+uses the selected environment for each root's PPA. Hosts and environments can
 be added or removed, and the same values are stored in
 `~/.config/release-board/config.json`. The default environment is `launchpad`.
 

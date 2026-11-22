@@ -104,6 +104,10 @@ def build_board(config: dict[str, Any] | None = None, refresh_launchpad: bool = 
                 "tag": package.get("tag", {}),
                 "git": git,
                 "ppa": package.get("ppa", ""),
+                "environment": (
+                    (launchpad_data.get("targets") or {}).get(str(profile.get("ppa")), {}).get("environment")
+                    or "launchpad"
+                ),
                 "profile": package.get("profile", {}),
                 "control": package.get("control", {}),
                 "sourceFormat": package.get("sourceFormat", ""),
