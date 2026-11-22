@@ -1,0 +1,91 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://github.com/scripting-drafts/Release-Board/slsa/debian-source/v1",
+      "externalParameters": {
+        "baseVersion": "0.5.11",
+        "package": "qa-dashboard",
+        "revision": 1,
+        "series": "jammy",
+        "source": {
+          "digest": {
+            "gitCommit": "10b8a2bf0ab23225307270bd44f6e6c6df5706f1"
+          },
+          "ref": "v0.5.11",
+          "uri": "https://github.com/scripting-drafts/QA-Dashboard.git"
+        },
+        "version": "0.5.11-0ubuntu1~jammy1"
+      },
+      "internalParameters": {
+        "builder": "release-board/0.9.8",
+        "command": [
+          "dpkg-buildpackage",
+          "-S",
+          "-sa",
+          "-kF104A3F1CE9A23540AEB8F24F31978E49E85DDCA"
+        ],
+        "tagObject": "9c6f2b6eea3ffd08c2ec5b56af580e3b0b8a0ad7",
+        "tagVerified": true,
+        "tree": "0d9bf7f18d11a5ec55ffefe05e95c7f9ca3e2c91"
+      },
+      "resolvedDependencies": [
+        {
+          "annotations": {
+            "ref": "v0.5.11",
+            "tree": "0d9bf7f18d11a5ec55ffefe05e95c7f9ca3e2c91"
+          },
+          "digest": {
+            "gitCommit": "10b8a2bf0ab23225307270bd44f6e6c6df5706f1"
+          },
+          "uri": "https://github.com/scripting-drafts/QA-Dashboard.git"
+        }
+      ]
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/scripting-drafts/Release-Board",
+        "version": {
+          "release-board": "0.9.8"
+        }
+      },
+      "byproducts": [],
+      "metadata": {
+        "finishedOn": "2026-11-22T16:44:38+00:00",
+        "invocationId": "bf08cfc5-a68c-4ea5-bff6-82ac997763b7",
+        "startedOn": "2026-11-22T16:44:16+00:00"
+      }
+    }
+  },
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "e809f55e5aa5759387de274cfb15929e12222b65d632464c778cdbaf09962f87"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.11-0ubuntu1~jammy1.dsc"
+    },
+    {
+      "digest": {
+        "sha256": "f1419a9bc2dd6ca247d3097ba38f23ef5ce28fa6f8565dbebe3f356247081295"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.11-0ubuntu1~jammy1.tar.xz"
+    },
+    {
+      "digest": {
+        "sha256": "6c666f2f4e3c96017c9356eb9317a2588fd3a571fa93baff34e8ef014b8e7afa"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.11-0ubuntu1~jammy1_source.buildinfo"
+    },
+    {
+      "digest": {
+        "sha256": "91864ae0890b409250cc935fb6f5934bdeb511d62b4989e87edc8bd5d0bf79b5"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.11-0ubuntu1~jammy1_source.changes"
+    }
+  ]
+}
