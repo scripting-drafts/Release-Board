@@ -576,6 +576,24 @@ class BootstrapTests(unittest.TestCase):
                 self.assertEqual(package["errors"], [])
                 self.assertTrue(package["dput"]["configured"])
 
+    def test_bootstrap_rejects_a_dirty_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            repo = self._repo(home)
+            env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
+            (repo / "README.md").write_text("dirty\n", encoding="utf-8")
+            run(["git", "add", "README.md"], cwd=repo)
+            with patch.dict(os.environ, env), \
+                 patch("release_board.bootstrap._signing_key_ok",
+                       return_value=(True, "secret key present")):
+                config = load_config()
+                config["roots"] = [
+                    {"name": "Faultlab", "path": str(repo), "deployment": "launchpad"}
+                ]
+                with self.assertRaises(BootstrapError):
+                    bootstrap(repo, config, commit=True)
+                self.assertFalse((repo / "debian").exists())
+
     def test_ensure_first_release_bootstraps_only_debian_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)

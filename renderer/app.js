@@ -255,9 +255,14 @@ function renderOverview() {
     left.append(h("h3", "", root.configuredName || root.name));
     left.append(h("div", "card-sub", root.path));
     const badges = h("div", "split");
-    badges.append(
-      pill(root.isGit ? (root.clean ? "clean" : `${root.dirty} dirty`) : "missing", worktreeHealth(root))
-    );
+    const rootState = !root.isGit
+      ? "missing"
+      : root.statusError
+        ? "status error"
+        : root.clean
+          ? "clean"
+          : `${root.dirty} dirty`;
+    badges.append(pill(rootState, worktreeHealth(root)));
     const sync = syncBadge(root);
     if (sync) badges.append(pill(sync.text, sync.kind));
     head.append(left, badges);

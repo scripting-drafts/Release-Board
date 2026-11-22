@@ -70,6 +70,7 @@ def inspect_root(
     behind = 0
     dirty = 0
     untracked = 0
+    status_error = ""
     if status.returncode == 0:
         for line in status.stdout.splitlines():
             if line.startswith("# branch.head "):
@@ -86,6 +87,8 @@ def inspect_root(
                 dirty += 1
             elif line.startswith(("1 ", "2 ", "u ")):
                 dirty += 1
+    else:
+        status_error = (status.stderr or status.stdout or "git status failed").strip()
 
     result.update(
         {
@@ -95,7 +98,8 @@ def inspect_root(
             "behind": behind,
             "dirty": dirty,
             "untracked": untracked,
-            "clean": dirty == 0,
+            "statusError": status_error,
+            "clean": dirty == 0 and not status_error,
             "remote": git_out(["remote", "get-url", remote], repo),
             "remoteName": remote,
         }

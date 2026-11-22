@@ -105,7 +105,9 @@ def check_release(
     if not git.get("isGit"):
         blockers.append("not a Git repository")
     else:
-        if git.get("dirty"):
+        if git.get("statusError"):
+            blockers.append(f"cannot read git status: {git['statusError']}")
+        elif git.get("dirty"):
             blockers.append(f"working tree is dirty ({git['dirty']} file(s))")
         if git.get("branch") != "main":
             blockers.append(f"release from main, not {git.get('branch') or 'detached HEAD'}")
@@ -807,8 +809,14 @@ def build_source(
     if not str(config.get("signKey", "")).strip() and not config.get("allowUnsignedBuilds"):
         return {"ok": False, "error": "no signing key configured; set signKey or allowUnsignedBuilds for local tests", "builds": []}
     if not config.get("allowDirtyBuilds"):
-        dirty = git_out(["status", "--porcelain"], root)
-        if dirty:
+        status = run(["git", "status", "--porcelain"], cwd=root, timeout=30)
+        if status.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"cannot read git status: {status.stderr.strip()}",
+                "builds": [],
+            }
+        if status.stdout.strip():
             return {"ok": False, "error": "working tree is dirty; commit or stash before building a release", "builds": []}
     branch = git_out(["rev-parse", "--abbrev-ref", "HEAD"], root)
     if branch != "main":

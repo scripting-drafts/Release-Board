@@ -250,6 +250,14 @@ def bootstrap(
         )
     if (root / "debian" / "changelog").is_file():
         raise BootstrapError(f"{root} already has debian/changelog")
+    if not dry_run:
+        status = run(["git", "status", "--porcelain"], cwd=root, timeout=30)
+        if status.returncode != 0:
+            raise BootstrapError(f"cannot read git status: {status.stderr.strip()}")
+        if status.stdout.strip():
+            raise BootstrapError(
+                "working tree is dirty; commit or stash before first-release bootstrap"
+            )
 
     name = _package_name(root, package)
     version = version.strip()
