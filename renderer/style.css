@@ -739,7 +739,7 @@ select:focus {
 
 .root-edit {
   display: grid;
-  grid-template-columns: minmax(130px, 0.5fr) minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(120px, 0.5fr) minmax(220px, 1fr) 90px 120px auto;
   gap: 8px;
   align-items: center;
   margin: 0;

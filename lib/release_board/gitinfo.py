@@ -8,7 +8,7 @@ from typing import Any
 from .util import git, git_out, parse_dpkg_changelog, split_version
 
 
-def _branch_records(root: Path, prefix: str) -> dict[str, dict[str, Any]]:
+def _branch_records(root: Path, prefix: str, remote_name: str = "origin") -> dict[str, dict[str, Any]]:
     fmt = "%(refname:short)%00%(objectname:short)%00%(upstream:short)%00%(upstream:track)"
     out = git_out(["for-each-ref", f"refs/{prefix}", f"--format={fmt}"], root)
     records: dict[str, dict[str, Any]] = {}
@@ -18,9 +18,9 @@ def _branch_records(root: Path, prefix: str) -> dict[str, dict[str, Any]]:
             continue
         name = parts[0]
         if prefix == "remotes":
-            if name in {"origin", "origin/HEAD"} or not name.startswith("origin/"):
+            if name in {remote_name, f"{remote_name}/HEAD"} or not name.startswith(f"{remote_name}/"):
                 continue
-            name = name[len("origin/") :]
+            name = name[len(remote_name) + 1 :]
         records[name] = {
             "name": name,
             "sha": parts[1],
@@ -30,7 +30,12 @@ def _branch_records(root: Path, prefix: str) -> dict[str, dict[str, Any]]:
     return records
 
 
-def inspect_root(root: Path, fetch: bool = False) -> dict[str, Any]:
+def inspect_root(
+    root: Path,
+    fetch: bool = False,
+    status_only: bool = False,
+    remote: str = "origin",
+) -> dict[str, Any]:
     root = root.expanduser().resolve()
     result: dict[str, Any] = {
         "path": str(root),
@@ -91,7 +96,8 @@ def inspect_root(root: Path, fetch: bool = False) -> dict[str, Any]:
             "dirty": dirty,
             "untracked": untracked,
             "clean": dirty == 0,
-            "remote": git_out(["remote", "get-url", "origin"], repo),
+            "remote": git_out(["remote", "get-url", remote], repo),
+            "remoteName": remote,
         }
     )
 
@@ -108,24 +114,29 @@ def inspect_root(root: Path, fetch: bool = False) -> dict[str, Any]:
         result["head"] = {}
 
     result["headTags"] = [tag for tag in git_out(["tag", "--points-at", "HEAD"], repo).splitlines() if tag]
+    if status_only:
+        result["statusOnly"] = True
+        return result
     result["tags"] = [tag for tag in git_out(["tag", "--list", "--sort=-creatordate"], repo).splitlines() if tag][:20]
 
-    local = _branch_records(repo, "heads")
-    remote = _branch_records(repo, "remotes")
+    local = _branch_records(repo, "heads", remote)
+    remote_branches = _branch_records(repo, "remotes", remote)
     result["branches"] = {
         "local": list(local.values()),
-        "remote": list(remote.values()),
-        "localOnly": sorted(set(local) - set(remote)),
-        "remoteOnly": sorted(set(remote) - set(local)),
+        "remote": list(remote_branches.values()),
+        "localOnly": sorted(set(local) - set(remote_branches)),
+        "remoteOnly": sorted(set(remote_branches) - set(local)),
         "diverged": sorted(
-            name for name in set(local) & set(remote) if local[name]["sha"] != remote[name]["sha"]
+            name
+            for name in set(local) & set(remote_branches)
+            if local[name]["sha"] != remote_branches[name]["sha"]
         ),
     }
 
     branch_details = []
-    for name in sorted(set(local) | set(remote)):
+    for name in sorted(set(local) | set(remote_branches)):
         local_ref = local.get(name, {})
-        remote_ref = remote.get(name, {})
+        remote_ref = remote_branches.get(name, {})
         detail = {
             "name": name,
             "localSha": local_ref.get("sha", ""),
@@ -169,10 +180,19 @@ def inspect_root(root: Path, fetch: bool = False) -> dict[str, Any]:
     return result
 
 
-def inspect_roots(roots: list[dict[str, str]], fetch: bool = False) -> dict[str, Any]:
+def inspect_roots(
+    roots: list[dict[str, str]],
+    fetch: bool = False,
+    status_only: bool = False,
+) -> dict[str, Any]:
     entries = []
     for entry in roots:
-        info = inspect_root(Path(entry["path"]), fetch=fetch)
+        info = inspect_root(
+            Path(entry["path"]),
+            fetch=fetch,
+            status_only=status_only,
+            remote=str(entry.get("remote") or "origin"),
+        )
         info["configuredName"] = entry["name"]
         entries.append(info)
     return {

@@ -9,11 +9,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from .config import profile_for, roots
+from .config import deployment_for, profile_for, roots
 from .util import cache_dir, now_iso, read_json, write_json_atomic
 
 API = "https://api.launchpad.net/1.0"
-USER_AGENT = "release-board/0.8.4 (+local read-only monitor)"
+USER_AGENT = "release-board/0.9.0 (+local read-only monitor)"
 
 
 def _fetch(url: str, timeout: int = 30) -> dict[str, Any]:
@@ -26,13 +26,15 @@ def _series(link: str) -> str:
     return link.rstrip("/").rsplit("/", 1)[-1] if link else ""
 
 
-def _source_entry(entry: dict[str, Any], user: str, ppa: str) -> dict[str, Any]:
+def _source_entry(entry: dict[str, Any], user: str, ppa: str, web_base: str = "") -> dict[str, Any]:
     source_id = str(entry.get("self_link", "")).rstrip("/").rsplit("/", 1)[-1]
     package = entry.get("source_package_name", "")
     version = entry.get("source_package_version", "")
     series = _series(entry.get("distro_series_link", ""))
     # +sourcepub is an API-only resource and returns 404 in a browser.
     # Point the UI at the public PPA package list and the signed .dsc instead.
+    if not web_base:
+        web_base = f"https://launchpad.net/~{user}/+archive/ubuntu"
     query = urllib.parse.urlencode(
         {
             "field.name_filter": package,
@@ -49,8 +51,8 @@ def _source_entry(entry: dict[str, Any], user: str, ppa: str) -> dict[str, Any]:
         "pocket": entry.get("pocket", ""),
         "created": entry.get("date_created", ""),
         "published": entry.get("date_published", ""),
-        "url": f"https://launchpad.net/~{user}/+archive/ubuntu/{ppa}/+packages?{query}",
-        "dscUrl": f"https://launchpad.net/~{user}/+archive/ubuntu/{ppa}/+files/{package}_{version}.dsc",
+        "url": f"{web_base}/{ppa}/+packages?{query}",
+        "dscUrl": f"{web_base}/{ppa}/+files/{package}_{version}.dsc",
         "apiUrl": entry.get("self_link", ""),
         "uploadId": str(entry.get("packageupload_link", "")).rstrip("/").rsplit("/", 1)[-1],
     }
@@ -75,17 +77,17 @@ def _build_entry(entry: dict[str, Any], user: str, ppa: str) -> dict[str, Any]:
     }
 
 
-def _archive_url(user: str, ppa: str, operation: str) -> str:
-    base = f"{API}/~{urllib.parse.quote(user)}/+archive/ubuntu/{urllib.parse.quote(ppa)}"
+def _archive_url(user: str, ppa: str, operation: str, api_base: str = API) -> str:
+    base = f"{api_base.rstrip('/')}/~{urllib.parse.quote(user)}/+archive/ubuntu/{urllib.parse.quote(ppa)}"
     return f"{base}?{urllib.parse.urlencode({'ws.op': operation, 'exact_match': 'true'})}"
 
 
-def fetch_archive(user: str, ppa: str) -> dict[str, Any]:
+def fetch_archive(user: str, ppa: str, api_base: str, web_base: str) -> dict[str, Any]:
     result: dict[str, Any] = {"ppa": ppa, "ok": False, "error": "", "sources": [], "builds": []}
     try:
-        sources = _fetch(_archive_url(user, ppa, "getPublishedSources"))
-        builds = _fetch(_archive_url(user, ppa, "getBuildRecords"))
-        result["sources"] = [_source_entry(item, user, ppa) for item in sources.get("entries", [])]
+        sources = _fetch(_archive_url(user, ppa, "getPublishedSources", api_base))
+        builds = _fetch(_archive_url(user, ppa, "getBuildRecords", api_base))
+        result["sources"] = [_source_entry(item, user, ppa, web_base) for item in sources.get("entries", [])]
         result["builds"] = [_build_entry(item, user, ppa) for item in builds.get("entries", [])]
         result["ok"] = True
     except Exception as exc:  # network errors are reported, never fatal
@@ -97,7 +99,10 @@ def observe(force: bool = False, config: dict[str, Any] | None = None) -> dict[s
     from .config import load_config
 
     config = config or load_config()
-    user = str(config.get("launchpadUser", "toomanypatterns"))
+    deployment = deployment_for("launchpad", config)
+    user = str(deployment.get("user") or config.get("launchpadUser", "toomanypatterns"))
+    api_base = str(deployment.get("api") or API)
+    web_base = str(deployment.get("web") or "https://launchpad.net/~{user}/+archive/ubuntu").format(user=user).rstrip("/")
     ppas = sorted(
         {
             str(profile_for(_detect_source(Path(entry["path"]), config), config).get("ppa"))
@@ -121,16 +126,27 @@ def observe(force: bool = False, config: dict[str, Any] | None = None) -> dict[s
             age = 10**9
     ttl = max(15, int(config.get("refreshSeconds", 60)))
     cached_archives = cached.get("archives") or {}
-    if not force and cached_archives and age < ttl and all(ppa in cached_archives for ppa in ppas):
+    same_deployment = (
+        (cached.get("deployment") or {}).get("user") == user
+        and (cached.get("deployment") or {}).get("api") == api_base
+    )
+    if (
+        not force
+        and same_deployment
+        and cached_archives
+        and age < ttl
+        and all(ppa in cached_archives for ppa in ppas)
+    ):
         return cached | {"cached": True, "ageSeconds": int(age)}
 
     archives = dict(cached.get("archives", {})) if not force else {}
     for ppa in ppas:
-        if force or ppa not in archives or not archives[ppa].get("ok"):
-            archives[ppa] = fetch_archive(user, ppa)
+        if force or not same_deployment or ppa not in archives or not archives[ppa].get("ok"):
+            archives[ppa] = fetch_archive(user, ppa, api_base, web_base)
     payload = {
         "schema": 1,
         "user": user,
+        "deployment": {"user": user, "api": api_base, "web": web_base},
         "fetchedAt": now_iso(),
         "archives": archives,
         "cached": False,
@@ -235,6 +251,7 @@ def summary(data: dict[str, Any], entries: list[dict[str, str]], config: dict[st
             )
             status = status_for(data, str(profile.get("ppa")), source, series, expected)
             status["expectedVersion"] = expected
+            status["untested"] = series in profile.get("untested", [])
             status["matchesExpected"] = (
                 bool(status["publishedVersion"]) and status["publishedVersion"].startswith(expected)
             )

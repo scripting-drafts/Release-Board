@@ -128,6 +128,7 @@ def inspect_package(root: Path, config: dict[str, Any]) -> dict[str, Any]:
             "profileName": source,
             "ppa": profile.get("ppa", source),
             "series": profile.get("series", []),
+            "untested": profile.get("untested", []),
             "jammyNative": bool(profile.get("jammyNative")),
             "versionFiles": _version_file_status(root, list(profile.get("versionFiles", [])), version["base"]),
         }

@@ -5,5 +5,5 @@ Standalone release cockpit for Debian/Ubuntu packages published to Launchpad.
 - `scripts/workspace.sh` opens the configured roots as separate Zed projects.
 - Source diff opens Local → Origin → Released tree diffs in Zed.
 - Config: `~/.config/release-board/config.json` (mode 0600).
-- Evidence: signed SLSA v1 attestations plus `release/ledger.jsonl`.
+- Pipeline: preflight, test, auto-tag build, push, upload, publication snapshot.
 - Docs: `docs/ARCHITECTURE.md`.

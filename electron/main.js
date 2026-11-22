@@ -86,6 +86,12 @@ function configRoots(config) {
   return (config.roots || []).map((item) => path.resolve(item.path));
 }
 
+function rootRemote(config, root) {
+  const resolved = path.resolve(String(root || ""));
+  const entry = (config.roots || []).find((item) => path.resolve(item.path) === resolved);
+  return String(entry?.remote || "origin");
+}
+
 function validateRoot(root, config) {
   const resolved = path.resolve(String(root || ""));
   if (!configRoots(config).includes(resolved)) {
@@ -200,7 +206,8 @@ function registerIpc() {
     const config = await getConfig();
     const root = validateRoot(options.root, config);
     const origin = /^[A-Za-z0-9._/-]+$/.test(String(options.origin || "main")) ? String(options.origin || "main") : "main";
-    return cli(["compare", "--json", "--root", root, "--origin", origin], 180000);
+    const remote = rootRemote(config, root);
+    return cli(["compare", "--json", "--root", root, "--origin", origin, "--remote", remote], 180000);
   });
 
 
@@ -215,7 +222,8 @@ function registerIpc() {
     const root = validateRoot(options.root, config);
     const index = Number(options.index);
     if (!Number.isInteger(index) || index < 0) return { ok: false, error: "invalid comparison index" };
-    return cli(["compare", "--json", "--open-comparison", String(index), "--root", root], 180000);
+    const remote = rootRemote(config, root);
+    return cli(["compare", "--json", "--open-comparison", String(index), "--root", root, "--remote", remote], 180000);
   });
 
   ipcMain.handle("compare:openFile", async (_event, options = {}) => {
@@ -225,8 +233,9 @@ function registerIpc() {
     if (!Number.isInteger(index) || index < 0) return { ok: false, error: "invalid comparison index" };
     const path = String(options.path || "");
     if (!path) return { ok: false, error: "missing file path" };
+    const remote = rootRemote(config, root);
     return cli(
-      ["compare", "--json", "--open-file", path, "--open-comparison", String(index), "--root", root],
+      ["compare", "--json", "--open-file", path, "--open-comparison", String(index), "--root", root, "--remote", remote],
       180000
     );
   });
@@ -295,10 +304,11 @@ function registerIpc() {
       check: ["check", "--root", root],
       test: ["test", "--root", root],
       push: ["push-release", "--root", root],
+      pipeline: ["pipeline", "--root", root, "--confirm"],
       binary: ["build-binary", "--root", root],
       build: ["build-source", "--root", root],
       upload: ["upload-latest", "--root", root, "--confirm"],
-      watch: ["watch", "--root", root],
+      watch: ["watch", "--root", root, "--once"],
     };
     const args = allowed[request?.name];
     if (!args) return { ok: false, error: "unsupported task" };

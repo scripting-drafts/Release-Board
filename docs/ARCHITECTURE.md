@@ -8,7 +8,7 @@ Dashboard; only the visual language is shared.
 | Component | Implementation |
 | --- | --- |
 | Workspace | `release-board workspace` opens configured roots as separate Zed projects in one window. Roots are editable in Settings or `~/.config/release-board/config.json`. Zed 1.28 has no portable workspace file; the launcher recreates the three-project session. |
-| Lifecycle tasks | `bin/release-board` exposes check, test, tag, push-release, build-binary, build-source, upload and watch. Zed tasks call the same commands with `$ZED_WORKTREE_ROOT`. |
+| Lifecycle tasks | `bin/release-board` exposes check, test, tag, push-release, build-binary, build-source, upload, watch and pipeline. Zed tasks call the same commands with `$ZED_WORKTREE_ROOT`. Roots define a Git remote and deployment environment. |
 | Git inspector | `git` reads status, upstream tracking, local/remote branches, divergence, tags and HEAD. `--fetch` is the only network operation. |
 | Source diff | `compare` builds changed-file trees for Local HEAD → Origin branch → Released tag, and opens only the changed files in a new Zed multi-diff window. |
 | Packaging inspector | Parses `debian/changelog`, `debian/control`, source format, version files, series policy, dput targets and the signing key. |

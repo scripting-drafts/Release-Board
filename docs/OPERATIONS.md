@@ -53,6 +53,33 @@ Clicking a comparison opens its files; clicking a file opens that file's diff.
 Exported trees live under `~/.local/state/release-board/diffs`; `compare --clean`
 removes them.
 
+## Automated pipeline
+
+The pipeline runs the complete release sequence:
+
+```bash
+release-board pipeline --root ~/QA-Sentinels --confirm
+```
+
+Steps:
+
+1. Local preflight; ahead/behind is informational.
+2. Package tests.
+3. Source build; the signed tag is created automatically.
+4. Push `main` and the tag to the configured remote.
+5. Upload every built source package.
+6. Take one publication snapshot.
+
+Publication does not block the pipeline. To poll until publication, run
+`release-board watch` without `--once`.
+
+## Repository and deployment settings
+
+Each configured root has a Git remote and a deployment environment. They are
+editable in Settings and in `~/.config/release-board/config.json`.
+Deployment environments define the Launchpad user, API base, archive base and
+web base. The default environment is `launchpad`.
+
 ## Command examples
 
 ```bash
@@ -63,13 +90,27 @@ bin/release-board pkg --root ~/QA-Sentinels
 bin/release-board launchpad --refresh
 bin/release-board build-source --root ~/QA-Sentinels --series "noble resolute"
 bin/release-board upload-latest --root ~/QA-Sentinels
-bin/release-board watch --root ~/QA-Sentinels
+bin/release-board pipeline --root ~/QA-Sentinels
+bin/release-board watch --root ~/QA-Sentinels --once
 bin/release-board trace --verify
 bin/release-board slsa --attestation <file.intoto.jsonl> --artifact <artifact>
 ```
 
 Revision selection is automatic: when the published base version matches the
 local base, the next upload uses the next `-0ubuntuN~series1` revision.
+
+## Untested preview series
+
+`stonking` (Ubuntu 26.10) is listed for visibility but marked `untested` in
+the package matrix. It is excluded from the default build, watch and preflight
+sets. Build it only when intended:
+
+```bash
+bin/release-board build-source --root ~/QA-Sentinels --series stonking
+```
+
+No runtime testing on 26.10 is planned in the near term. Do not describe
+stonking packages as supported or tested.
 
 ## SLSA provenance
 

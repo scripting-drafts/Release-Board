@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .config import load_config, profile_for
+from .config import load_config, profile_for, root_entry
 from .gitinfo import inspect_root
 from .launchpad import observe, status_for
 from .packaging import inspect_package
@@ -22,6 +22,7 @@ from .util import (
     ensure_dir,
     git_out,
     now_iso,
+    parse_dpkg_changelog,
     run,
     series_version,
     sha256_file,
@@ -37,7 +38,8 @@ def _series_list(profile: dict[str, Any], selected: list[str] | None = None) -> 
         for item in selected:
             result.extend(part for part in re.split(r"[,\s]+", item) if part)
         return result
-    return list(profile.get("series", []))
+    untested = set(profile.get("untested", []))
+    return [series for series in profile.get("series", []) if series not in untested]
 
 
 def _ledger_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -87,6 +89,7 @@ def check_release(
     root: Path,
     config: dict[str, Any] | None = None,
     require_tag: bool = False,
+    require_sync: bool = False,
 ) -> dict[str, Any]:
     config = config or load_config()
     root = root.expanduser().resolve()
@@ -103,7 +106,14 @@ def check_release(
         if git.get("branch") != "main":
             blockers.append(f"release from main, not {git.get('branch') or 'detached HEAD'}")
         if git.get("ahead") or git.get("behind"):
-            blockers.append(f"branch is not in sync with {git.get('upstream') or 'upstream'} (behind {git.get('behind')}, ahead {git.get('ahead')})")
+            message = (
+                f"branch is not in sync with {git.get('upstream') or 'upstream'} "
+                f"(behind {git.get('behind')}, ahead {git.get('ahead')})"
+            )
+            if require_sync:
+                blockers.append(message)
+            else:
+                notes.append(f"{message}; the pipeline push step will publish it")
 
     if package.get("errors"):
         blockers.extend(package["errors"])
@@ -129,7 +139,8 @@ def check_release(
     elif not tag.get("pointsAtHead"):
         blockers.append(f"release tag {tag_name} does not point at HEAD")
     elif git.get("isGit"):
-        remote_tag = run(["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag_name}"], cwd=root, timeout=30)
+        remote = root_entry(root, config).get("remote", "origin")
+        remote_tag = run(["git", "ls-remote", "--tags", remote, f"refs/tags/{tag_name}"], cwd=root, timeout=30)
         pushed = remote_tag.returncode == 0 and bool(remote_tag.stdout.strip())
         if not pushed:
             if require_tag:
@@ -138,6 +149,9 @@ def check_release(
                 notes.append(f"release tag {tag_name} exists locally; push it before upload")
 
     profile = profile_for(package.get("source", root.name), config)
+    untested = profile.get("untested", [])
+    if untested:
+        notes.append(f"untested preview series skipped: {', '.join(untested)}")
     parsed = split_version(package.get("version", ""))
     launchpad_rows = []
     try:
@@ -145,7 +159,7 @@ def check_release(
     except Exception as exc:
         data = {"archives": {}, "error": str(exc)}
         notes.append(f"Launchpad unavailable: {exc}")
-    for series in profile.get("series", []):
+    for series in _series_list(profile):
         jammy_native = bool(profile.get("jammyNative"))
         published = status_for(data, str(profile.get("ppa")), package.get("source", ""), series, "").get(
             "publishedVersion", ""
@@ -506,6 +520,7 @@ def build_source(
         "root": str(root),
         "package": package.get("source", ""),
         "baseVersion": package.get("baseVersion", ""),
+        "untestedSeries": [series for series in series_values if series in profile.get("untested", [])],
         "builds": results,
     }
 
@@ -524,9 +539,10 @@ def push_release(root: Path, config: dict[str, Any] | None = None) -> dict[str, 
     branch = git_out(["rev-parse", "--abbrev-ref", "HEAD"], root)
     if branch != "main":
         return {"ok": False, "error": f"push from main, not {branch or 'detached HEAD'}"}
+    remote = root_entry(root, config).get("remote", "origin")
     results = []
     for ref in (branch, tag):
-        proc = run(["git", "push", "origin", ref], cwd=root, timeout=120)
+        proc = run(["git", "push", remote, ref], cwd=root, timeout=120)
         results.append({"ref": ref, "ok": proc.returncode == 0, "output": (proc.stdout + proc.stderr).strip()})
         if proc.returncode != 0:
             break
@@ -612,7 +628,7 @@ def upload(
         return {"ok": False, "error": "upload requires explicit confirmation"}
     if not changes.is_file():
         return {"ok": False, "error": f"changes file not found: {changes}"}
-    check = check_release(root, config, require_tag=True)
+    check = check_release(root, config, require_tag=True, require_sync=True)
     if not check.get("ok"):
         return {"ok": False, "error": "release preflight failed", "check": check}
     package = check["package"]
@@ -707,12 +723,112 @@ def upload(
     return result
 
 
+def built_changes(root: Path, config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    config = config or load_config()
+    changelog = parse_dpkg_changelog(root)
+    if not changelog:
+        return []
+    source = changelog.get("source", "")
+    parsed = split_version(changelog.get("version", ""))
+    entries = read_ledger(config)
+    uploaded = {
+        str(item.get("changesSha256", ""))
+        for item in entries
+        if item.get("event") in {"uploaded", "published"} and item.get("changesSha256")
+    }
+    builds: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in entries:
+        if entry.get("event") != "built":
+            continue
+        if entry.get("package") != source:
+            continue
+        if not str(entry.get("version", "")).startswith(parsed["base"]):
+            continue
+        if str(entry.get("changesSha256", "")) in uploaded:
+            continue
+        changes = Path(str(entry.get("changes", "")))
+        if not changes.is_file():
+            continue
+        builds[(str(entry.get("series")), str(entry.get("version")))] = entry
+    return list(builds.values())
+
+
+def upload_built(
+    root: Path,
+    config: dict[str, Any] | None = None,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    config = config or load_config()
+    entries = built_changes(root, config)
+    if not entries:
+        return {"ok": False, "error": "no built source packages for the local version", "uploads": []}
+    results = []
+    for entry in entries:
+        result = upload(root, Path(entry["changes"]), config, confirm=confirm)
+        results.append(result)
+        if not result.get("ok"):
+            break
+    return {"ok": all(item.get("ok") for item in results), "uploads": results}
+
+
+def release_pipeline(
+    root: Path,
+    config: dict[str, Any] | None = None,
+    series_list: list[str] | None = None,
+    revision: int | None = None,
+    confirm: bool = False,
+    check_publication: bool = True,
+    log: Any = None,
+) -> dict[str, Any]:
+    config = config or load_config()
+    root = root.expanduser().resolve()
+    emit = log or (lambda _message: None)
+    if not confirm:
+        return {"ok": False, "error": "pipeline requires explicit confirmation", "steps": {}}
+
+    emit("== preflight")
+    preflight = check_release(root, config, require_tag=False, require_sync=False)
+    if not preflight.get("ok"):
+        return {"ok": False, "error": "preflight failed", "steps": {"preflight": preflight}}
+
+    emit("== tests")
+    tests = run_tests(root, config)
+    if not tests.get("ok"):
+        return {"ok": False, "error": "tests failed", "steps": {"preflight": preflight, "tests": tests}}
+
+    emit("== build source (auto-tag)")
+    build = build_source(root, series_list, revision, config, tag=True)
+    if not build.get("ok"):
+        return {"ok": False, "error": "build failed", "steps": {"preflight": preflight, "tests": tests, "build": build}}
+
+    emit("== push main and tag")
+    pushed = push_release(root, config)
+    if not pushed.get("ok"):
+        return {
+            "ok": False,
+            "error": "push failed",
+            "steps": {"preflight": preflight, "tests": tests, "build": build, "push": pushed},
+        }
+
+    emit("== upload")
+    uploads = upload_built(root, config, confirm=True)
+    steps = {"preflight": preflight, "tests": tests, "build": build, "push": pushed, "uploads": uploads}
+    if not uploads.get("ok"):
+        return {"ok": False, "error": "upload failed", "steps": steps}
+
+    if check_publication:
+        emit("== publication snapshot")
+        steps["publication"] = watch(root, series_list, config, once=True)
+    return {"ok": True, "steps": steps}
+
+
 def watch(
     root: Path,
     series_list: list[str] | None = None,
     config: dict[str, Any] | None = None,
     timeout: int = 10800,
     interval: int = 60,
+    once: bool = False,
 ) -> dict[str, Any]:
     config = config or load_config()
     root = root.expanduser().resolve()
@@ -779,6 +895,8 @@ def watch(
                 break
             if final.get("state") == "failed":
                 break
+            if once:
+                break
             if waited >= timeout:
                 break
             time.sleep(interval)
@@ -800,4 +918,9 @@ def watch(
                 ),
             }
         )
-    return {"ok": all(item["ok"] for item in rows), "package": package.get("source", ""), "series": rows}
+    return {
+        "ok": True if once else all(item["ok"] for item in rows),
+        "singleShot": once,
+        "package": package.get("source", ""),
+        "series": rows,
+    }

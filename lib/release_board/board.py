@@ -63,6 +63,7 @@ def build_board(config: dict[str, Any] | None = None, refresh_launchpad: bool = 
                 "package": source,
                 "configuredName": package.get("configuredName", ""),
                 "series": series,
+                "untested": series in profile.get("untested", []),
                 "expectedVersion": expected,
                 "publishedVersion": status.get("publishedVersion", ""),
                 "latestVersion": status.get("latestVersion", ""),
@@ -184,10 +185,13 @@ def render_markdown(board: dict[str, Any]) -> str:
         ]
     )
     for row in board.get("rows", []):
+        series = row.get("series", "")
+        if row.get("untested"):
+            series = f"{series} (untested)"
         lines.append(
             "| {package} | {series} | {expected} | {published} | {upload} | {build} | {commit} | {tag} |".format(
                 package=row.get("package", ""),
-                series=row.get("series", ""),
+                series=series,
                 expected=row.get("expectedVersion", ""),
                 published=row.get("publishedVersion", "") or "—",
                 upload=row.get("uploadState", ""),

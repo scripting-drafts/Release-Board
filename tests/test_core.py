@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
+from release_board.config import deployment_for, roots  # noqa: E402
 from release_board.compare import (  # noqa: E402
     _anomaly_paths,
     _make_anomaly_repo,
@@ -24,6 +25,7 @@ from release_board.release import (  # noqa: E402
     _next_revision,
     _published_base,
     _published_matches,
+    _series_list,
 )
 from release_board.trace import append_event, read_ledger  # noqa: E402
 from release_board.util import parse_dpkg_changelog, run, series_version, split_version  # noqa: E402
@@ -55,6 +57,14 @@ class VersionTests(unittest.TestCase):
     def test_native_jammy(self) -> None:
         self.assertEqual(_published_base("1.3.31", "jammy", True), "1.3.31")
         self.assertEqual(_next_revision("1.3.31", "1.3.31", "jammy", True), 2)
+
+    def test_untested_series_is_opt_in(self) -> None:
+        profile = {
+            "series": ["jammy", "noble", "resolute", "stonking"],
+            "untested": ["stonking"],
+        }
+        self.assertEqual(_series_list(profile), ["jammy", "noble", "resolute"])
+        self.assertEqual(_series_list(profile, ["stonking"]), ["stonking"])
 
 
 class PackagingTests(unittest.TestCase):
@@ -289,6 +299,34 @@ class CompareTests(unittest.TestCase):
             self.assertIn("no release tag", " ".join(data["warnings"]))
 
 
+class ConfigTests(unittest.TestCase):
+    def test_root_remote_and_deployment(self) -> None:
+        config = {
+            "roots": [
+                {
+                    "name": "Demo",
+                    "path": "/tmp/demo",
+                    "remote": "upstream",
+                    "deployment": "staging",
+                }
+            ],
+            "deployments": {
+                "staging": {
+                    "user": "staging-user",
+                    "api": "https://example.invalid/api",
+                    "archive": "https://example.invalid/archive/{user}",
+                    "web": "https://example.invalid/~{user}",
+                }
+            },
+        }
+        entries = roots(config)
+        self.assertEqual(entries[0]["remote"], "upstream")
+        self.assertEqual(entries[0]["deployment"], "staging")
+        deployment = deployment_for("staging", config)
+        self.assertEqual(deployment["user"], "staging-user")
+        self.assertEqual(deployment["api"], "https://example.invalid/api")
+
+
 class LedgerTests(unittest.TestCase):
     def test_append_and_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -341,6 +379,7 @@ class BoardTests(unittest.TestCase):
                 {
                     "package": "demo",
                     "series": "noble",
+                    "untested": True,
                     "expectedVersion": "1.0-0ubuntu1~noble1",
                     "publishedVersion": "1.0-0ubuntu1~noble1",
                     "uploadState": "published",
@@ -356,6 +395,7 @@ class BoardTests(unittest.TestCase):
         text = render_markdown(board)
         self.assertIn("Release Board", text)
         self.assertIn("demo", text)
+        self.assertIn("noble (untested)", text)
         self.assertIn("1.0-0ubuntu1~noble1", text)
 
 

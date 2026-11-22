@@ -246,7 +246,12 @@ function renderOverview() {
   for (const row of board.rows || []) {
     const tr = h("tr");
     tr.append(h("td", "mono nowrap", row.package));
-    tr.append(h("td", "nowrap", row.series));
+    const seriesCell = h("td", "nowrap");
+    const seriesWrap = h("span", "split");
+    seriesWrap.append(h("span", "", row.series));
+    if (row.untested) seriesWrap.append(pill("untested", "warn"));
+    seriesCell.append(seriesWrap);
+    tr.append(seriesCell);
     tr.append(h("td", "mono nowrap", row.expectedVersion));
     tr.append(h("td", "mono nowrap", row.publishedVersion || "—"));
     tr.append(h("td", "nowrap", pill(row.uploadState, statusKind(row.uploadState))));
@@ -680,7 +685,12 @@ function renderLaunchpad() {
     const tbody = h("tbody");
     for (const row of pkg.series || []) {
       const tr = h("tr");
-      tr.append(h("td", "nowrap", row.series));
+      const seriesCell = h("td", "nowrap");
+      const seriesWrap = h("span", "split");
+      seriesWrap.append(h("span", "", row.series));
+      if (row.untested) seriesWrap.append(pill("untested", "warn"));
+      seriesCell.append(seriesWrap);
+      tr.append(seriesCell);
       tr.append(h("td", "mono nowrap", row.publishedVersion || "—"));
       tr.append(h("td", "nowrap", pill(row.uploadState, statusKind(row.uploadState))));
       const buildPill = pill(row.buildState || "—", statusKind(row.buildState));
@@ -832,8 +842,9 @@ function renderTasks() {
     ["binary", "Build local .deb", "Build a testable binary package in a temporary source tree."],
     ["build", "Build source", "Create the signed tag automatically and build source packages for every configured series."],
     ["push", "Push main + tag", "Push the release branch and signed tag to origin."],
+    ["pipeline", "Run release pipeline", "Preflight, test, build, push, upload and take a publication snapshot."],
     ["upload", "Upload latest", "Upload built source changes files after confirmation."],
-    ["watch", "Watch publication", "Poll Launchpad until every selected series is published or fails."],
+    ["watch", "Check publication", "Read the current Launchpad publication state once."],
   ];
   for (const [name, title, description] of tasks) {
     const card = h("button", "task-card");
@@ -873,11 +884,11 @@ function renderSettings() {
   const rootBox = h("div", "stack card-block");
   rootBox.id = "settings-roots";
   for (const root of config.roots || []) {
-    rootBox.append(rootEditRow(root.name, root.path));
+    rootBox.append(rootEditRow(root.name, root.path, root.remote || "origin", root.deployment || "launchpad"));
   }
   card.append(rootBox);
   const add = button("Add root", "ghost", () => {
-    rootBox.append(rootEditRow("", ""));
+    rootBox.append(rootEditRow("", "", "origin", "launchpad"));
   });
   const addBar = h("div", "toolbar card-block");
   addBar.append(add);
@@ -903,7 +914,26 @@ function renderSettings() {
   refreshInput.min = "15";
   refreshInput.value = config.refreshSeconds || 60;
   refreshLabel.append(refreshInput);
-  form.append(userLabel, keyLabel, refreshLabel);
+  const deployment = (config.deployments || {}).launchpad || {};
+  const apiLabel = h("label", "field");
+  apiLabel.append(h("span", "", "Launchpad API base"));
+  const apiInput = h("input");
+  apiInput.type = "text";
+  apiInput.value = deployment.api || "https://api.launchpad.net/1.0";
+  apiLabel.append(apiInput);
+  const archiveLabel = h("label", "field");
+  archiveLabel.append(h("span", "", "Archive base"));
+  const archiveInput = h("input");
+  archiveInput.type = "text";
+  archiveInput.value = deployment.archive || "https://ppa.launchpadcontent.net/{user}";
+  archiveLabel.append(archiveInput);
+  const webLabel = h("label", "field");
+  webLabel.append(h("span", "", "Launchpad web base"));
+  const webInput = h("input");
+  webInput.type = "text";
+  webInput.value = deployment.web || "https://launchpad.net/~{user}/+archive/ubuntu";
+  webLabel.append(webInput);
+  form.append(userLabel, keyLabel, refreshLabel, apiLabel, archiveLabel, webLabel);
   card.append(h("h3", "card-section-title", "Release identity"));
   card.append(form);
 
@@ -912,10 +942,20 @@ function renderSettings() {
     const roots = [...rootBox.querySelectorAll(".root-edit")].map((row) => ({
       name: row.querySelector(".root-name").value.trim(),
       path: row.querySelector(".root-path").value.trim(),
+      remote: row.querySelector(".root-remote").value.trim() || "origin",
+      deployment: row.querySelector(".root-deployment").value.trim() || "launchpad",
     }));
     const patch = {
       roots,
       launchpadUser: userInput.value.trim(),
+      deployments: {
+        launchpad: {
+          user: userInput.value.trim(),
+          api: apiInput.value.trim(),
+          archive: archiveInput.value.trim(),
+          web: webInput.value.trim(),
+        },
+      },
       signKey: keyInput.value.trim(),
       refreshSeconds: Number(refreshInput.value) || 60,
     };
@@ -938,7 +978,7 @@ function renderSettings() {
   node.append(card);
 }
 
-function rootEditRow(name, path) {
+function rootEditRow(name, path, remote = "origin", deployment = "launchpad") {
   const row = h("div", "root-edit");
   const nameInput = h("input");
   nameInput.type = "text";
@@ -950,8 +990,18 @@ function rootEditRow(name, path) {
   pathInput.className = "root-path";
   pathInput.placeholder = "/home/you/Project";
   pathInput.value = path || "";
+  const remoteInput = h("input");
+  remoteInput.type = "text";
+  remoteInput.className = "root-remote";
+  remoteInput.placeholder = "origin";
+  remoteInput.value = remote || "origin";
+  const deploymentInput = h("input");
+  deploymentInput.type = "text";
+  deploymentInput.className = "root-deployment";
+  deploymentInput.placeholder = "launchpad";
+  deploymentInput.value = deployment || "launchpad";
   const remove = button("Remove", "subtle", () => row.remove());
-  row.append(nameInput, pathInput, remove);
+  row.append(nameInput, pathInput, remoteInput, deploymentInput, remove);
   return row;
 }
 
@@ -1038,10 +1088,15 @@ async function runTask(name) {
       message: "Upload built source packages to their PPAs?",
       detail: "This performs a real signed source upload. The preflight must pass and the tag must be pushed.",
     },
+    pipeline: {
+      title: "Run release pipeline",
+      message: "Run preflight, tests, build, push, upload and a publication snapshot?",
+      detail: "The build creates the signed tag, then pushes main and the tag, uploads the source packages and reads Launchpad once.",
+    },
     watch: {
-      title: "Watch publication",
-      message: "Poll Launchpad until publication completes?",
-      detail: "The task can run for up to three hours.",
+      title: "Check publication",
+      message: "Read the current Launchpad publication state?",
+      detail: "This is a single snapshot; it does not wait for builds to finish.",
     },
   };
   if (prompts[name]) {

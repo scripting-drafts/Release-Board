@@ -2,6 +2,7 @@
   "qa-dashboard": {
     "ppa": "qa-dashboard",
     "series": ["jammy", "noble", "resolute", "stonking"],
+    "untested": ["stonking"],
     "jammyNative": false,
     "binaryPackage": "qa-dashboard",
     "test": ["npm", "test"],
@@ -12,6 +13,7 @@
   "qa-sentinels": {
     "ppa": "qa-sentinels",
     "series": ["jammy", "noble", "resolute", "stonking"],
+    "untested": ["stonking"],
     "jammyNative": false,
     "binaryPackage": "qa-sentinels",
     "test": ["python3", "-m", "unittest", "discover", "-s", "tests"],
@@ -22,6 +24,7 @@
   "ubuntu-backup": {
     "ppa": "ubuntu-backup",
     "series": ["jammy", "noble", "resolute"],
+    "untested": [],
     "jammyNative": true,
     "binaryPackage": "ubuntu-backup",
     "test": ["python3", "-m", "unittest", "discover", "-s", "tests"],

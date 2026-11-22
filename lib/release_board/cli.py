@@ -28,7 +28,7 @@ from .config import (
 )
 from .gitinfo import inspect_roots
 from .launchpad import observe, summary as launchpad_summary
-from .packaging import inspect_packages
+from .packaging import inspect_package, inspect_packages
 from .slsa import verify_attestation
 from .release import (
     build_binary,
@@ -36,6 +36,7 @@ from .release import (
     check_release,
     ensure_tag,
     push_release,
+    release_pipeline,
     run_tests,
     upload,
     watch,
@@ -85,6 +86,8 @@ def cmd_config(args: argparse.Namespace) -> int:
             "ledgerPath",
             "profiles",
             "allowUnsignedBuilds",
+            "deployments",
+            "repoHosts",
         }
         unknown = sorted(set(patch) - allowed)
         if unknown:
@@ -100,6 +103,10 @@ def cmd_config(args: argparse.Namespace) -> int:
             config["refreshSeconds"] = max(15, int(patch["refreshSeconds"]))
         if "profiles" in patch and isinstance(patch["profiles"], dict):
             config.setdefault("profiles", {}).update(patch["profiles"])
+        if "deployments" in patch and isinstance(patch["deployments"], dict):
+            config.setdefault("deployments", {}).update(patch["deployments"])
+        if "repoHosts" in patch and isinstance(patch["repoHosts"], dict):
+            config.setdefault("repoHosts", {}).update(patch["repoHosts"])
         save_config(config)
     payload = config_summary(config)
     payload["version"] = __version__
@@ -238,6 +245,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
         origin_branch=args.origin,
         release_ref=args.release,
         fetch=args.fetch,
+        remote=args.remote,
         open_zed=args.open,
         open_sources=args.open_sources,
         open_comparison=args.open_comparison,
@@ -332,6 +340,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     config = load_config()
     root = _resolve_root(args.root, config)
     payload = build_source(root, args.series, args.revision, config, tag=args.tag)
+    for series in payload.get("untestedSeries", []):
+        print(f"warning: {series} is an untested preview series", file=sys.stderr)
     _print(payload, args.json, json.dumps(payload, indent=2))
     return 0 if payload.get("ok") else 1
 
@@ -416,10 +426,38 @@ def cmd_upload_latest(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def cmd_pipeline(args: argparse.Namespace) -> int:
+    config = load_config()
+    root = _resolve_root(args.root, config)
+    if not args.confirm:
+        package = inspect_package(root, config)
+        answer = input(
+            f"Run release pipeline for {package.get('source')} {package.get('version')}? [y/N] "
+        ).strip().lower()
+        if answer not in {"y", "yes"}:
+            print("aborted")
+            return 1
+    payload = release_pipeline(
+        root,
+        config,
+        series_list=args.series,
+        revision=args.revision,
+        confirm=True,
+        check_publication=not args.no_publication,
+        log=lambda message: print(
+            message,
+            file=sys.stderr if args.json else sys.stdout,
+            flush=True,
+        ),
+    )
+    _print(payload, args.json)
+    return 0 if payload.get("ok") else 1
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     config = load_config()
     root = _resolve_root(args.root, config)
-    payload = watch(root, args.series, config, timeout=args.timeout, interval=args.interval)
+    payload = watch(root, args.series, config, timeout=args.timeout, interval=args.interval, once=args.once)
     _print(payload, args.json, json.dumps(payload, indent=2))
     return 0 if payload.get("ok") else 1
 
@@ -480,8 +518,9 @@ def _zed_tasks(cli: Path) -> list[dict[str, Any]]:
         {"label": "Release: build local .deb", "command": f"{python} {cli} build-binary --root {root}"},
         {"label": "Release: build source (all series)", "command": f"{python} {cli} build-source --root {root}"},
         {"label": "Release: push main and tag", "command": f"{python} {cli} push-release --root {root}"},
+        {"label": "Release: pipeline", "command": f"{python} {cli} pipeline --root {root}"},
         {"label": "Release: upload latest", "command": f"{python} {cli} upload-latest --root {root}"},
-        {"label": "Release: watch publication", "command": f"{python} {cli} watch --root {root}"},
+        {"label": "Release: check publication", "command": f"{python} {cli} watch --root {root} --once"},
         {"label": "Release: open board app", "command": f"npm --prefix {cli.parents[1]} start"},
     ]
 
@@ -561,6 +600,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--origin", default="main", help="origin branch to compare (default: main)")
     p.add_argument("--release", default="", help="release tag (default: v<package version>)")
     p.add_argument("--fetch", action="store_true", help="fetch origin and tags first")
+    p.add_argument("--remote", default="origin", help="Git remote name (default: origin)")
     p.add_argument("--open", action="store_true", help="open changed files in Zed")
     p.add_argument("--open-sources", action="store_true", help="open the three source trees in Zed")
     p.add_argument("--open-comparison", type=int, default=None, help="open one comparison by index")
@@ -607,11 +647,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", default="")
     p.add_argument("--confirm", action="store_true")
 
+    p = add("pipeline", cmd_pipeline, "run preflight, test, build, push and upload")
+    p.add_argument("--root", default="")
+    p.add_argument("--series", action="append", default=[])
+    p.add_argument("--revision", type=int, default=None)
+    p.add_argument("--no-publication", action="store_true", help="skip the publication snapshot")
+    p.add_argument("--confirm", action="store_true")
+
     p = add("watch", cmd_watch, "wait for Launchpad publication")
     p.add_argument("--root", default="")
     p.add_argument("--series", action="append", default=[])
     p.add_argument("--timeout", type=int, default=10800)
     p.add_argument("--interval", type=int, default=60)
+    p.add_argument("--once", action="store_true", help="check publication once and exit")
 
     p = add("workspace", cmd_workspace, "open configured roots as Zed projects")
     p.add_argument("--dry-run", action="store_true")

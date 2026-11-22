@@ -26,12 +26,24 @@ DEFAULT_ROOTS = [
     {"name": "Ubuntu Backup", "path": str(Path.home() / "Ubuntu-Backup-src")},
 ]
 
+DEFAULT_DEPLOYMENTS = {
+    "launchpad": {
+        "kind": "launchpad",
+        "user": DEFAULT_USER,
+        "api": "https://api.launchpad.net/1.0",
+        "archive": "https://ppa.launchpadcontent.net/{user}",
+        "web": "https://launchpad.net/~{user}/+archive/ubuntu",
+    }
+}
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema": 1,
     "roots": DEFAULT_ROOTS,
     "ledgerRepo": str(APP_ROOT),
     "ledgerPath": "release/ledger.jsonl",
     "launchpadUser": DEFAULT_USER,
+    "deployments": copy.deepcopy(DEFAULT_DEPLOYMENTS),
+    "repoHosts": {"github": "https://github.com"},
     "signKey": DEFAULT_SIGN_KEY,
     "refreshSeconds": 60,
     "profiles": {},
@@ -49,6 +61,10 @@ def load_config() -> dict[str, Any]:
         for key, value in stored.items():
             if key == "profiles" and isinstance(value, dict):
                 config["profiles"].update(value)
+            elif key == "deployments" and isinstance(value, dict):
+                config["deployments"].update(value)
+            elif key == "repoHosts" and isinstance(value, dict):
+                config["repoHosts"].update(value)
             else:
                 config[key] = value
     return config
@@ -69,6 +85,7 @@ def profile_for(source: str, config: dict[str, Any] | None = None) -> dict[str, 
     profile = copy.deepcopy(defaults.get(source, {}))
     profile.setdefault("ppa", source)
     profile.setdefault("series", ["jammy", "noble", "resolute"])
+    profile.setdefault("untested", [])
     profile.setdefault("jammyNative", False)
     profile.setdefault("binaryPackage", source)
     profile.setdefault("test", [])
@@ -92,6 +109,9 @@ def roots(config: dict[str, Any] | None = None) -> list[dict[str, str]]:
                 {
                     "name": str(entry.get("name") or Path(entry["path"]).name),
                     "path": str(Path(entry["path"]).expanduser()),
+                    "remote": str(entry.get("remote") or "origin"),
+                    "host": str(entry.get("host") or "github"),
+                    "deployment": str(entry.get("deployment") or "launchpad"),
                 }
             )
     return result
@@ -113,6 +133,8 @@ def config_summary(config: dict[str, Any] | None = None) -> dict[str, Any]:
         "roots": roots(config),
         "ledger": str(ledger_file(config)),
         "launchpadUser": config.get("launchpadUser"),
+        "deployments": config.get("deployments", {}),
+        "repoHosts": config.get("repoHosts", {}),
         "signKey": config.get("signKey"),
         "profiles": sorted(default_profiles().keys()),
         "refreshSeconds": config.get("refreshSeconds", 60),
@@ -135,10 +157,39 @@ def set_roots(entries: list[dict[str, str]], config: dict[str, Any] | None = Non
         path = Path(str(entry.get("path", ""))).expanduser()
         if not path:
             continue
-        clean.append({"name": str(entry.get("name") or path.name), "path": str(path)})
+        clean.append(
+            {
+                "name": str(entry.get("name") or path.name),
+                "path": str(path),
+                "remote": str(entry.get("remote") or "origin"),
+                "host": str(entry.get("host") or "github"),
+                "deployment": str(entry.get("deployment") or "launchpad"),
+            }
+        )
     config["roots"] = clean
     save_config(config)
     return config
+
+
+def root_entry(path: Path | str, config: dict[str, Any] | None = None) -> dict[str, str]:
+    config = config or load_config()
+    resolved = str(Path(path).expanduser().resolve())
+    for entry in roots(config):
+        if str(Path(entry["path"]).resolve()) == resolved or Path(entry["path"]).name == str(path):
+            return entry
+    return {"name": Path(resolved).name, "path": resolved, "remote": "origin", "host": "github", "deployment": "launchpad"}
+
+
+def deployment_for(name: str | None, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_config()
+    deployments = config.get("deployments", {})
+    selected = deployments.get(name or "launchpad", {}) if isinstance(deployments, dict) else {}
+    merged = copy.deepcopy(DEFAULT_DEPLOYMENTS["launchpad"])
+    if isinstance(selected, dict):
+        merged.update(selected)
+    if not merged.get("user"):
+        merged["user"] = config.get("launchpadUser", DEFAULT_USER)
+    return merged
 
 
 def package_root(root: Path) -> Path:

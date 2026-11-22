@@ -164,6 +164,7 @@ def compare_root(
     origin_branch: str = "main",
     release_ref: str = "",
     fetch: bool = False,
+    remote: str = "origin",
 ) -> dict[str, Any]:
     config = config or load_config()
     root = root.expanduser().resolve()
@@ -175,14 +176,14 @@ def compare_root(
     root = Path(top)
 
     if fetch:
-        proc = git(["fetch", "--prune", "--tags", "origin", origin_branch], root, timeout=120)
+        proc = git(["fetch", "--prune", "--tags", remote, origin_branch], root, timeout=120)
         if proc.returncode != 0:
             raise CompareError(f"git fetch failed: {proc.stderr.strip()}")
 
     changelog = parse_dpkg_changelog(root)
     base = split_version(changelog.get("version", ""))["base"] if changelog else ""
     local = _ref_info(root, "HEAD", "Local Sources")
-    origin_ref = f"origin/{origin_branch}"
+    origin_ref = f"{remote}/{origin_branch}"
     origin = _ref_info(root, origin_ref, f"Origin {origin_branch}")
     release_name, release_warning = _resolve_release_ref(root, base, release_ref)
     if release_name:
@@ -560,12 +561,13 @@ def compare_cli_payload(
     origin_branch: str = "main",
     release_ref: str = "",
     fetch: bool = False,
+    remote: str = "origin",
     open_zed: bool = False,
     open_sources: bool = False,
     open_comparison: int | None = None,
     open_file: str = "",
 ) -> dict[str, Any]:
-    data = compare_root(root, config, origin_branch, release_ref, fetch)
+    data = compare_root(root, config, origin_branch, release_ref, fetch, remote)
     if open_sources:
         data["zed"] = open_source_trees(data, config)
     elif open_comparison is not None or open_file:
