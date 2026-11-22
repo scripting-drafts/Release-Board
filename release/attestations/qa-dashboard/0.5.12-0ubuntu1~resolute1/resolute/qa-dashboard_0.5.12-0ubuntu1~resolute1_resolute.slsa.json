@@ -1,0 +1,91 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://github.com/scripting-drafts/Release-Board/slsa/debian-source/v1",
+      "externalParameters": {
+        "baseVersion": "0.5.12",
+        "package": "qa-dashboard",
+        "revision": 1,
+        "series": "resolute",
+        "source": {
+          "digest": {
+            "gitCommit": "6d98782a2cd23be02a015ce6b40090199aee11b9"
+          },
+          "ref": "v0.5.12",
+          "uri": "https://github.com/scripting-drafts/QA-Dashboard.git"
+        },
+        "version": "0.5.12-0ubuntu1~resolute1"
+      },
+      "internalParameters": {
+        "builder": "release-board/0.9.17",
+        "command": [
+          "dpkg-buildpackage",
+          "-S",
+          "-sa",
+          "-kF104A3F1CE9A23540AEB8F24F31978E49E85DDCA"
+        ],
+        "tagObject": "dcb23bf2611bc3b076d58d8c24765ae6552fc5b1",
+        "tagVerified": true,
+        "tree": "6323d485aad673e6498892140f20b5d8cc2c6cc9"
+      },
+      "resolvedDependencies": [
+        {
+          "annotations": {
+            "ref": "v0.5.12",
+            "tree": "6323d485aad673e6498892140f20b5d8cc2c6cc9"
+          },
+          "digest": {
+            "gitCommit": "6d98782a2cd23be02a015ce6b40090199aee11b9"
+          },
+          "uri": "https://github.com/scripting-drafts/QA-Dashboard.git"
+        }
+      ]
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/scripting-drafts/Release-Board",
+        "version": {
+          "release-board": "0.9.17"
+        }
+      },
+      "byproducts": [],
+      "metadata": {
+        "finishedOn": "2026-11-22T18:34:27+00:00",
+        "invocationId": "a7c8bb9f-2856-4096-8bed-439639ae1ca5",
+        "startedOn": "2026-11-22T18:34:04+00:00"
+      }
+    }
+  },
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "6116586826d579b281e1ecca5f7520005dd6507d7be8d231986007e60391d697"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.12-0ubuntu1~resolute1.dsc"
+    },
+    {
+      "digest": {
+        "sha256": "65c07668918e04c8ee270705cbfce275bc5b459e638cc6dca1ff8ff67e4d8b71"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.12-0ubuntu1~resolute1.tar.xz"
+    },
+    {
+      "digest": {
+        "sha256": "eb74d41f6f830129a0aed6532a5233d5a722b0751074fa0ac665131b47487fb2"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.12-0ubuntu1~resolute1_source.buildinfo"
+    },
+    {
+      "digest": {
+        "sha256": "f2e832ec32d25a394f2346b62139e1194d6d81d653934c9dd25cc0c443603fba"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-dashboard_0.5.12-0ubuntu1~resolute1_source.changes"
+    }
+  ]
+}
