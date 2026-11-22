@@ -47,19 +47,20 @@ def _ref_info(root: Path, ref: str, label: str) -> dict[str, Any]:
     }
 
 
-def _resolve_release_ref(root: Path, base: str, explicit: str) -> str:
+def _resolve_release_ref(root: Path, base: str, explicit: str) -> tuple[str, str]:
     if explicit:
         _require_ref(root, explicit)
-        return explicit
+        return explicit, ""
     candidate = f"v{base}" if base else ""
     if candidate and git_out(["rev-parse", "--verify", "-q", f"refs/tags/{candidate}^{{commit}}"], root):
-        return candidate
+        return candidate, ""
     tags = [tag for tag in git_out(["tag", "--list", "v*", "--sort=-creatordate"], root).splitlines() if tag]
     if tags:
-        raise CompareError(
-            f"release tag {candidate or 'v<base>'} not found; pass --release. Available tags: {', '.join(tags[:8])}"
+        return "", (
+            f"release tag {candidate or 'v<base>'} not found; showing Local → Origin only. "
+            f"Available tags: {', '.join(tags[:8])}"
         )
-    raise CompareError("no release tag found; pass --release")
+    return "", "no release tag found; showing Local → Origin only"
 
 
 def _parse_name_status(output: str) -> list[dict[str, Any]]:
@@ -183,17 +184,33 @@ def compare_root(
     local = _ref_info(root, "HEAD", "Local Sources")
     origin_ref = f"origin/{origin_branch}"
     origin = _ref_info(root, origin_ref, f"Origin {origin_branch}")
-    release_name = _resolve_release_ref(root, base, release_ref)
-    released = _ref_info(root, release_name, f"Released {release_name}")
+    release_name, release_warning = _resolve_release_ref(root, base, release_ref)
+    if release_name:
+        released = _ref_info(root, release_name, f"Released {release_name}")
+    else:
+        released = {
+            "label": "Released Sources",
+            "ref": "",
+            "sha": "",
+            "short": "",
+            "subject": "No release tag",
+            "date": "",
+            "available": False,
+            "warning": release_warning or "No release tag for this repository.",
+        }
 
     local_origin = _comparison(root, local, origin, "Local Sources → Origin")
-    origin_release = _comparison(root, origin, released, "Origin → Released")
+    comparisons = [local_origin]
+    if release_name:
+        comparisons.append(_comparison(root, origin, released, "Origin → Released"))
     dirty = bool(git_out(["status", "--porcelain"], root))
     warnings = []
     if dirty:
         warnings.append("working tree has uncommitted changes; Local Sources is HEAD")
-    if not parse_dpkg_changelog(root):
-        warnings.append("no Debian changelog; release tag was not derived from a package version")
+    if release_warning:
+        warnings.append(release_warning)
+    if not changelog:
+        warnings.append("no Debian changelog; released source is informational only")
 
     return {
         "ok": True,
@@ -203,7 +220,8 @@ def compare_root(
         "originBranch": origin_branch,
         "dirty": dirty,
         "refs": {"local": local, "origin": origin, "released": released},
-        "comparisons": [local_origin, origin_release],
+        "release": {"available": bool(release_name), "ref": release_name, "warning": release_warning},
+        "comparisons": comparisons,
         "warnings": warnings,
         "generatedAt": now_iso(),
     }

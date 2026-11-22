@@ -42,7 +42,8 @@ Use `--origin` to compare another remote branch, `--release` to choose a
 specific tag, `--fetch` to update refs first, and `--open` to launch the changed
 files in a new Zed window as a multi-diff. Only changed files are exported, so
 empty comparisons do not open. Uncommitted changes are reported but Local
-Sources remains `HEAD`. Exported trees live under
+Sources remains `HEAD`. A missing release tag is informational: the view falls
+back to Local → Origin and still succeeds. Exported trees live under
 `~/.local/state/release-board/diffs`; `compare --clean` removes them.
 
 ## Command examples

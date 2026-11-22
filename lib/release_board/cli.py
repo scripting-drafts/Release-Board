@@ -246,7 +246,10 @@ def cmd_compare(args: argparse.Namespace) -> int:
         print(f"root:     {payload['root']}")
         for key in ("local", "origin", "released"):
             ref = payload["refs"][key]
-            print(f"{ref['label']:<18} {ref['short']}  {ref['subject']}")
+            if ref.get("available") is False:
+                print(f"{ref['label']:<18} unavailable")
+            else:
+                print(f"{ref['label']:<18} {ref['short']}  {ref['subject']}")
         for comparison in payload["comparisons"]:
             print(
                 f"\n{comparison['label']} · {comparison['fileCount']} file(s) · "

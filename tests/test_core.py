@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
-from release_board.compare import _parse_name_status, _tree  # noqa: E402
+from release_board.compare import _parse_name_status, _tree, compare_root  # noqa: E402
 from release_board.launchpad import _source_entry, status_for  # noqa: E402
 from release_board.packaging import parse_control  # noqa: E402
 from release_board.release import (  # noqa: E402
@@ -238,6 +238,23 @@ class CompareTests(unittest.TestCase):
         tree = _tree(files)
         self.assertEqual([node["name"] for node in tree], ["docs", "src"])
         self.assertEqual(tree[1]["children"][0]["status"], "M")
+
+    def test_missing_release_is_informational(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            run(["git", "init", "-q", "-b", "main"], cwd=repo)
+            run(["git", "config", "user.name", "Test"], cwd=repo)
+            run(["git", "config", "user.email", "test@example.invalid"], cwd=repo)
+            (repo / "file.txt").write_text("one\n", encoding="utf-8")
+            run(["git", "add", "file.txt"], cwd=repo)
+            run(["git", "commit", "-qm", "one"], cwd=repo)
+            run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=repo)
+            data = compare_root(repo, {})
+            self.assertTrue(data["ok"])
+            self.assertFalse(data["release"]["available"])
+            self.assertFalse(data["refs"]["released"]["available"])
+            self.assertEqual(len(data["comparisons"]), 1)
+            self.assertIn("no release tag", " ".join(data["warnings"]))
 
 
 class LedgerTests(unittest.TestCase):

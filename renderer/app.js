@@ -385,8 +385,14 @@ function compareRefCard(label, ref, extra) {
   const head = h("div", "card-head");
   const left = h("div");
   left.append(h("h3", "", label));
-  left.append(h("div", "card-sub", ref.ref));
+  left.append(h("div", "card-sub", ref?.ref || "not available"));
   head.append(left);
+  if (ref?.available === false || !ref?.sha) {
+    head.append(pill("unavailable", ""));
+    card.append(head);
+    card.append(h("div", "card-sub", ref?.warning || "No release tag for this repository."));
+    return card;
+  }
   if (extra) head.append(extra);
   else head.append(pill(ref.short, "info"));
   card.append(head);
