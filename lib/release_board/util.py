@@ -19,19 +19,6 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def host_series(default: str = "resolute") -> str:
-    """Return the current Ubuntu series codename."""
-    try:
-        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
-            if line.startswith("VERSION_CODENAME="):
-                value = line.split("=", 1)[1].strip().strip('"')
-                if value:
-                    return value
-    except OSError:
-        pass
-    return default
-
-
 def config_home() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
 

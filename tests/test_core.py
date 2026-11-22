@@ -555,8 +555,6 @@ class BootstrapTests(unittest.TestCase):
             with patch.dict(os.environ, env), \
                  patch("release_board.bootstrap._signing_key_ok",
                        return_value=(True, "secret key present")), \
-                 patch("release_board.bootstrap.host_series",
-                       return_value="resolute"), \
                  patch("release_board.packaging._signing_key_ok",
                        return_value=(True, "secret key present")):
                 config = load_config()
@@ -565,8 +563,6 @@ class BootstrapTests(unittest.TestCase):
                 ]
                 payload = bootstrap(repo, config, commit=False)
                 self.assertTrue(payload["ok"])
-                self.assertEqual(payload["series"], ["resolute"])
-                self.assertIn("resolute", (repo / "debian" / "changelog").read_text())
                 self.assertTrue((repo / "debian" / "changelog").is_file())
                 self.assertTrue((repo / "debian" / "control").is_file())
                 self.assertTrue((repo / "debian" / "rules").is_file())
@@ -579,29 +575,6 @@ class BootstrapTests(unittest.TestCase):
                 package = inspect_package(repo, reloaded)
                 self.assertEqual(package["errors"], [])
                 self.assertTrue(package["dput"]["configured"])
-
-    def test_series_are_opt_in(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
-            repo = self._repo(home)
-            env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
-            with patch.dict(os.environ, env), \
-                 patch("release_board.bootstrap._signing_key_ok",
-                       return_value=(True, "secret key present")), \
-                 patch("release_board.bootstrap.host_series",
-                       return_value="resolute"):
-                config = load_config()
-                config["roots"] = [
-                    {"name": "Faultlab", "path": str(repo), "deployment": "launchpad"}
-                ]
-                payload = bootstrap(
-                    repo,
-                    config,
-                    series=["jammy", "noble"],
-                    dry_run=True,
-                )
-                self.assertEqual(payload["series"], ["jammy", "noble"])
-                self.assertEqual(payload["distribution"], "jammy")
 
     def test_scaffold_is_limited_to_source_deployments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

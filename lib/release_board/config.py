@@ -12,7 +12,6 @@ from .util import (
     PROFILES_FILE,
     config_path,
     ensure_dir,
-    host_series,
     now_iso,
     read_json,
     write_json_atomic,
@@ -85,7 +84,7 @@ def profile_for(source: str, config: dict[str, Any] | None = None) -> dict[str, 
     defaults = default_profiles()
     profile = copy.deepcopy(defaults.get(source, {}))
     profile.setdefault("ppa", source)
-    profile.setdefault("series", [host_series()])
+    profile.setdefault("series", ["jammy", "noble", "resolute"])
     profile.setdefault("untested", [])
     profile.setdefault("jammyNative", False)
     profile.setdefault("binaryPackage", source)

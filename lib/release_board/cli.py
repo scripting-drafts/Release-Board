@@ -731,11 +731,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", default="")
     p.add_argument("--package", default="")
     p.add_argument("--version", default="0.1.0")
-    p.add_argument("--distribution", default="")
+    p.add_argument("--distribution", default="jammy")
     p.add_argument("--maintainer", default="")
     p.add_argument("--description", default="")
-    p.add_argument("--series", action="append", default=[],
-                   help="opt in to a series; defaults to the current host series")
+    p.add_argument("--series", action="append", default=[])
     p.add_argument("--commit", action="store_true")
     p.add_argument("--dry-run", action="store_true")
 

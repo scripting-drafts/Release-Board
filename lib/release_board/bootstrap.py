@@ -17,14 +17,17 @@ from typing import Any
 from .config import (
     deployment_for,
     load_config,
+    profile_for,
     root_entry,
     save_config,
 )
 from .packaging import _signing_key_ok
-from .util import git_out, host_series, now_iso, run, write_text_atomic
+from .util import git_out, now_iso, run, write_text_atomic
 
 SOURCE_DEPLOYMENTS = {"launchpad", "debian"}
 DEFAULT_VERSION = "0.1.0"
+DEFAULT_DISTRIBUTION = "jammy"
+DEFAULT_SERIES = ["jammy", "noble", "resolute"]
 STANDARDS_VERSION = "4.7.0"
 BUILD_DEPENDS = "debhelper-compat (= 13)"
 
@@ -76,7 +79,7 @@ def _description(root: Path, package: str, override: str) -> str:
 
 
 def _distribution(value: str, series: list[str]) -> str:
-    distribution = (value or series[0]).strip()
+    distribution = (value or DEFAULT_DISTRIBUTION).strip()
     if distribution not in series:
         raise BootstrapError(
             f"distribution {distribution!r} is not in the profile series: {', '.join(series)}"
@@ -178,7 +181,7 @@ def _add_dput(package: str, user: str, dry_run: bool) -> dict[str, Any]:
 def _series(values: list[str]) -> list[str]:
     result = [item.strip() for item in values if item.strip()]
     if not result:
-        result = [host_series()]
+        result = list(DEFAULT_SERIES)
     for item in result:
         if not re.fullmatch(r"[a-z][a-z0-9.-]*", item):
             raise BootstrapError(f"invalid Debian series: {item!r}")
@@ -191,7 +194,7 @@ def bootstrap(
     *,
     package: str = "",
     version: str = DEFAULT_VERSION,
-    distribution: str = "",
+    distribution: str = DEFAULT_DISTRIBUTION,
     maintainer: str = "",
     description: str = "",
     series: list[str] | None = None,
@@ -217,7 +220,7 @@ def bootstrap(
     version = version.strip()
     if not re.fullmatch(r"[0-9][A-Za-z0-9.+:~-]*", version):
         raise BootstrapError(f"invalid Debian version: {version!r}")
-    series_list = _series(series or [])
+    series_list = _series(series or list(profile_for(name, config).get("series", [])))
     distribution = _distribution(distribution, series_list)
     owner = _maintainer(root, maintainer)
     description = _description(root, name, description)
