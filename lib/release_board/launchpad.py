@@ -13,7 +13,7 @@ from .config import deployment_for, profile_for, roots
 from .util import cache_dir, now_iso, read_json, write_json_atomic
 
 API = "https://api.launchpad.net/1.0"
-USER_AGENT = "release-board/0.9.4 (+local read-only monitor)"
+USER_AGENT = "release-board/0.9.5 (+local read-only monitor)"
 
 
 def _fetch(url: str, timeout: int = 30) -> dict[str, Any]:

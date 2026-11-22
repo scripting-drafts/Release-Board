@@ -1208,47 +1208,6 @@ async function runTask(name) {
     notice("A task is already running for this project.", true);
     return;
   }
-  const prompts = {
-    build: {
-      title: "Build source packages",
-      message: "Create the signed release tag and build source packages for every configured series?",
-      detail: "The tag is created at HEAD. Build runs from a temporary git archive; the working tree is not modified. Push the tag before uploading.",
-    },
-    binary: {
-      title: "Build local .deb",
-      message: "Build a binary package for local installation testing?",
-      detail: "The build is unsigned and stays on this host. It is not uploaded.",
-    },
-    push: {
-      title: "Push release",
-      message: "Push main and the signed release tag to origin?",
-      detail: "The preflight requires main to be in sync and the tag to be signed at HEAD.",
-    },
-    upload: {
-      title: "Upload to Launchpad",
-      message: "Upload built source packages to their PPAs?",
-      detail: "This performs a real signed source upload. The preflight must pass and the tag must be pushed.",
-    },
-    pipeline: {
-      title: "Run release pipeline",
-      message: "Run preflight, tests, build, push, upload and a publication snapshot?",
-      detail: "The build creates the signed tag, then pushes main and the tag, uploads the source packages and reads Launchpad once. Git conflicts block the pipeline until resolved.",
-    },
-    pipelineResume: {
-      title: "Resume release pipeline",
-      message: "Resume from the last incomplete or conflict-blocked step?",
-      detail: "Completed steps are skipped. If Git is mid-rebase, resolve conflicts and run git rebase --continue first.",
-    },
-    watch: {
-      title: "Check publication",
-      message: "Read the current Launchpad publication state?",
-      detail: "This is a single snapshot; it does not wait for builds to finish.",
-    },
-  };
-  if (prompts[name]) {
-    const answer = await api.confirm(prompts[name]);
-    if (!answer.ok) return;
-  }
   const task = {
     id: null,
     name,

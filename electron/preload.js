@@ -17,7 +17,6 @@ contextBridge.exposeInMainWorld("releaseBoard", {
   saveConfig: (patch) => ipcRenderer.invoke("config:save", patch),
   openZed: () => ipcRenderer.invoke("zed:open"),
   openUrl: (url) => ipcRenderer.invoke("open:url", url),
-  confirm: (request) => ipcRenderer.invoke("confirm:ask", request),
   runTask: (request) => ipcRenderer.invoke("task:run", request),
   cancelTask: (id) => ipcRenderer.invoke("task:cancel", id),
   pauseTask: (id) => ipcRenderer.invoke("task:pause", id),

@@ -1,6 +1,6 @@
 "use strict";
 
-const { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, nativeTheme, shell } = require("electron");
 const { execFile, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -283,19 +283,6 @@ function registerIpc() {
     if (!safeExternal(url)) return { ok: false, error: "blocked URL" };
     await shell.openExternal(url);
     return { ok: true };
-  });
-
-  ipcMain.handle("confirm:ask", async (_event, request) => {
-    const result = await dialog.showMessageBox(mainWindow, {
-      type: "warning",
-      buttons: ["Cancel", "Continue"],
-      defaultId: 0,
-      cancelId: 0,
-      title: String(request?.title || "Confirm"),
-      message: String(request?.message || "Continue?"),
-      detail: String(request?.detail || ""),
-    });
-    return { ok: result.response === 1 };
   });
 
   ipcMain.handle("task:run", async (event, request) => {
