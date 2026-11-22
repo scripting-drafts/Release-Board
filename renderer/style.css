@@ -270,6 +270,67 @@ button:disabled {
   color: var(--red);
 }
 
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 7, 15, 0.66);
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.dialog h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.dialog-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.dialog-list-title {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+}
+
+.dialog-list {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.dialog-list code {
+  font-family: "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -626,6 +687,18 @@ tr:last-child td {
 .issue.bad {
   border-left-color: var(--red);
   color: var(--red);
+}
+
+.blocker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.blocker-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .issue.warn {

@@ -15,6 +15,8 @@ const state = {
   compareError: "",
   pipelineData: null,
   pipelineLoading: false,
+  repairPreviewing: false,
+  repairPrompted: new Set(),
   gitRefreshing: false,
   userNavigated: false,
   timer: null,
@@ -102,6 +104,71 @@ function notice(message, error = false) {
       error ? 6500 : 4000
     );
   }
+}
+
+const STALE_TAG_RE = /release tag v\S+ does not point at HEAD/;
+
+let dialogState = null;
+
+function dialogOpen() {
+  const root = document.getElementById("dialog-root");
+  return Boolean(root && root.firstChild);
+}
+
+function closeDialog() {
+  const root = document.getElementById("dialog-root");
+  if (!root || !root.firstChild) return;
+  if (dialogState?.onKey) document.removeEventListener("keydown", dialogState.onKey);
+  const previousFocus = dialogState?.previousFocus;
+  root.replaceChildren();
+  dialogState = null;
+  if (previousFocus && typeof previousFocus.focus === "function") previousFocus.focus();
+}
+
+function openDialog({ title, message, items = [], itemsLabel = "Changed files", confirmLabel = "Continue", onConfirm }) {
+  closeDialog();
+  const root = document.getElementById("dialog-root");
+  if (!root) return;
+  const backdrop = h("div", "dialog-backdrop");
+  const dialog = h("div", "dialog");
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "dialog-title");
+
+  const heading = h("h2", "", title);
+  heading.id = "dialog-title";
+  dialog.append(heading);
+  if (message) dialog.append(h("p", "dialog-message", message));
+  if (items.length) {
+    dialog.append(h("div", "dialog-list-title", itemsLabel));
+    const list = h("ul", "dialog-list");
+    for (const item of items) list.append(h("li", "", item));
+    dialog.append(list);
+  }
+
+  const actions = h("div", "dialog-actions");
+  const cancel = button("Cancel", "ghost", closeDialog);
+  const confirm = button(confirmLabel, "primary", () => {
+    closeDialog();
+    onConfirm?.();
+  });
+  actions.append(cancel, confirm);
+  dialog.append(actions);
+  backdrop.append(dialog);
+
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) closeDialog();
+  });
+  const onKey = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDialog();
+    }
+  };
+  document.addEventListener("keydown", onKey);
+  dialogState = { onKey, previousFocus: document.activeElement };
+  root.replaceChildren(backdrop);
+  requestAnimationFrame(() => cancel.focus());
 }
 
 function setView(view, fromUser = false) {
@@ -852,29 +919,104 @@ function appendConsole(text, stream, root = state.taskRoot) {
   consoleNode.scrollTop = consoleNode.scrollHeight;
 }
 
-function repairPrompt(data) {
+function pipelineBlockers(pipeline) {
+  const blockers = new Set();
+  for (const [name, step] of Object.entries(pipeline.steps || {})) {
+    if (step && step.ok === false && step.error) blockers.add(`${name}: ${step.error}`);
+  }
+  if (!blockers.size && pipeline.error) blockers.add(pipeline.error);
+  return [...blockers];
+}
+
+function packageForRoot(root) {
+  return (state.board?.packages || []).find((pkg) => pkg.path === root) || null;
+}
+
+function compareVersions(a, b) {
+  return String(a || "").localeCompare(String(b || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function sourceBumpedBeyondPipeline(pipeline, root = state.taskRoot) {
+  const pkg = packageForRoot(root);
+  if (!pkg?.baseVersion || !pipeline?.version) return false;
+  return compareVersions(pkg.baseVersion, pipeline.version) > 0;
+}
+
+function repairDialogContent(data) {
+  const changed = Array.isArray(data.changed) ? data.changed : [];
   if (data.action === "bumped") {
-    const changed = Array.isArray(data.changed) ? data.changed : [];
-    const lines = [
-      `Release ${data.from} is already built or published.`,
-      `Repair will bump to ${data.to}, update ${changed.length} file(s), and commit.`,
-      "",
-    ];
-    if (changed.length) lines.push(`Changed: ${changed.join(", ")}`, "");
-    lines.push("Continue?");
-    return lines.join("\n");
+    return {
+      title: `Bump release ${data.from} to ${data.to}`,
+      message: `Release ${data.from} is already built or published, so its tag is not moved. Repair bumps the base version to ${data.to}, updates ${changed.length} file(s), and creates a signed commit. Resume the pipeline afterwards to rerun preflight.`,
+      items: changed,
+      confirmLabel: `Bump to ${data.to}`,
+    };
   }
   if (data.action === "replaced") {
-    return [
-      `${data.tag} does not point at HEAD and has no build, upload or publish record.`,
-      data.remote
-        ? "Repair will delete it locally and on the remote, then recreate the signed tag at HEAD."
-        : "Repair will replace the local tag with a signed tag at HEAD.",
-      "",
-      "Continue?",
-    ].join("\n");
+    return {
+      title: `Repair ${data.tag || "release tag"}`,
+      message: data.remote
+        ? `${data.tag} does not point at HEAD and has no build, upload or publish record. Repair deletes it locally and on the remote, then recreates the signed tag at HEAD.`
+        : `${data.tag} does not point at HEAD and has no build, upload or publish record. Repair replaces the local tag with a signed tag at HEAD.`,
+      items: [],
+      confirmLabel: "Replace tag",
+    };
   }
-  return `Repair action: ${data.action || "unknown"}. Continue?`;
+  return {
+    title: "Repair release tag",
+    message: `Repair action: ${data.action || "unknown"}. Continue?`,
+    items: [],
+    confirmLabel: "Continue",
+  };
+}
+
+async function previewRepair({ root = state.taskRoot, auto = false } = {}) {
+  if (!root || state.repairPreviewing || activeTask(root)) return;
+  if (auto && dialogOpen()) return;
+  state.repairPreviewing = true;
+  if (!auto) notice("Previewing tag repair…");
+  try {
+    const preview = await api.repairPreview({ root });
+    const data = preview?.data || {};
+    if (!preview?.ok || data.ok === false) {
+      if (auto) return;
+      const reasons = Array.isArray(data.reasons) && data.reasons.length
+        ? ` (${data.reasons.join("; ")})`
+        : "";
+      notice(`${data.error || preview?.error || "repair preview failed"}${reasons}`, true);
+      return;
+    }
+    if (data.action === "none") {
+      if (!auto) notice(data.message || "Release tag is already current.");
+      return;
+    }
+    if (state.view !== "tasks" || state.taskRoot !== root) return;
+    openDialog({
+      ...repairDialogContent(data),
+      onConfirm: async () => {
+        state.taskRoot = root;
+        await runTask("repair");
+        loadPipelineStatus();
+      },
+    });
+  } finally {
+    state.repairPreviewing = false;
+  }
+}
+
+function maybePromptStaleTag(blockers, pipelineStatus, taskActive) {
+  if (state.view !== "tasks" || taskActive) return;
+  if (!["failed", "blocked"].includes(pipelineStatus)) return;
+  if (dialogOpen() || state.repairPreviewing) return;
+  const blocker = blockers.find((message) => STALE_TAG_RE.test(message));
+  if (!blocker) return;
+  const key = `${state.taskRoot}|${blocker}`;
+  if (state.repairPrompted.has(key)) return;
+  state.repairPrompted.add(key);
+  previewRepair({ root: state.taskRoot, auto: true });
 }
 
 function renderTasks() {
@@ -933,6 +1075,7 @@ function renderTasks() {
     : taskActive && pipeline.status === "running"
       ? "running"
       : pipeline.status || "idle";
+  const sourceBumped = sourceBumpedBeyondPipeline(pipeline);
   const panel = h("div", "card pipeline-panel");
   const panelHead = h("div", "card-head");
   const panelTitle = h("div");
@@ -953,15 +1096,23 @@ function renderTasks() {
     for (const file of pipeline.conflicts) conflicts.append(h("div", "issue bad", file));
     panel.append(conflicts);
   }
-  const blockers = new Set();
-  for (const [name, step] of Object.entries(pipeline.steps || {})) {
-    if (step && step.ok === false && step.error) blockers.add(`${name}: ${step.error}`);
-  }
-  if (!blockers.size && pipeline.error) blockers.add(pipeline.error);
-  if (blockers.size) {
+  const blockers = pipelineBlockers(pipeline).filter(
+    (message) => !(sourceBumped && STALE_TAG_RE.test(message))
+  );
+  if (blockers.length) {
     const errors = h("div", "card-section");
     errors.append(h("div", "card-section-title", "Blockers"));
-    for (const message of blockers) errors.append(h("div", "issue bad", message));
+    for (const message of blockers) {
+      const row = h("div", "issue bad blocker-row");
+      row.append(h("span", "blocker-text", message));
+      if (STALE_TAG_RE.test(message)) {
+        const fix = button("Repair tag…", "subtle", () => previewRepair({ root: state.taskRoot }));
+        fix.title = "Preview and repair the stale release tag";
+        fix.disabled = taskActive;
+        row.append(fix);
+      }
+      errors.append(row);
+    }
     panel.append(errors);
   }
   const actions = h("div", "toolbar card-actions");
@@ -1008,25 +1159,7 @@ function renderTasks() {
     await runTask("pipelineResume");
     loadPipelineStatus();
   });
-  const repair = button("Repair tag", "ghost", async () => {
-    if (taskActive) return;
-    const preview = await api.repairPreview({ root: state.taskRoot });
-    const data = preview?.data || {};
-    if (!preview?.ok || data.ok === false) {
-      const reasons = Array.isArray(data.reasons) && data.reasons.length
-        ? ` (${data.reasons.join("; ")})`
-        : "";
-      notice(`${data.error || preview?.error || "repair preview failed"}${reasons}`, true);
-      return;
-    }
-    if (data.action === "none") {
-      notice(data.message || "Release tag is already current.");
-      return;
-    }
-    if (!window.confirm(repairPrompt(data))) return;
-    await runTask("repair");
-    loadPipelineStatus();
-  });
+  const repair = button("Repair tag", "ghost", () => previewRepair({ root: state.taskRoot }));
   repair.title = "Preview and repair a stale release tag";
   const resolve = button("Resolve conflicts", "ghost", async () => {
     const result = await api.resolveConflicts({ root: state.taskRoot });
@@ -1042,9 +1175,12 @@ function renderTasks() {
   resume.disabled = !canResume && !taskActive;
   repair.disabled = taskActive || !["failed", "blocked"].includes(pipeline.status);
   resolve.disabled = !pipeline.conflicts?.length && pipeline.status !== "blocked";
-  actions.append(start, pause, stop, resume, repair, resolve);
+  actions.append(start, pause, stop, resume);
+  if (!sourceBumped) actions.append(repair);
+  actions.append(resolve);
   panel.append(actions);
   node.append(panel);
+  maybePromptStaleTag(blockers, pipelineStatus, taskActive);
 
   const manualTitle = h("div", "section-title");
   manualTitle.append(h("h2", "", "Manual tasks"));
