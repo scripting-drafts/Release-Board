@@ -1,0 +1,91 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://github.com/scripting-drafts/Release-Board/slsa/debian-source/v1",
+      "externalParameters": {
+        "baseVersion": "1.4.4",
+        "package": "qa-sentinels",
+        "revision": 2,
+        "series": "noble",
+        "source": {
+          "digest": {
+            "gitCommit": "941e99ad66ac31565565475a92e7034e82af3906"
+          },
+          "ref": "v1.4.4",
+          "uri": "https://github.com/scripting-drafts/QA-Sentinels.git"
+        },
+        "version": "1.4.4-0ubuntu2~noble1"
+      },
+      "internalParameters": {
+        "builder": "release-board/0.9.8",
+        "command": [
+          "dpkg-buildpackage",
+          "-S",
+          "-sa",
+          "-kF104A3F1CE9A23540AEB8F24F31978E49E85DDCA"
+        ],
+        "tagObject": "c38ee42ed6a3cabc8dd129959ce82a4da33e1027",
+        "tagVerified": true,
+        "tree": "dbc2fd0e283fd333d61a32a744b021014f66527a"
+      },
+      "resolvedDependencies": [
+        {
+          "annotations": {
+            "ref": "v1.4.4",
+            "tree": "dbc2fd0e283fd333d61a32a744b021014f66527a"
+          },
+          "digest": {
+            "gitCommit": "941e99ad66ac31565565475a92e7034e82af3906"
+          },
+          "uri": "https://github.com/scripting-drafts/QA-Sentinels.git"
+        }
+      ]
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/scripting-drafts/Release-Board",
+        "version": {
+          "release-board": "0.9.8"
+        }
+      },
+      "byproducts": [],
+      "metadata": {
+        "finishedOn": "2026-11-22T16:46:54+00:00",
+        "invocationId": "f2de4205-3760-421c-b1ec-7cb8ba114e37",
+        "startedOn": "2026-11-22T16:46:52+00:00"
+      }
+    }
+  },
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "db160d9e236f005b7379e4eec60db3d6b2179eabdaa33e91928bd312686b4323"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-sentinels_1.4.4-0ubuntu2~noble1.dsc"
+    },
+    {
+      "digest": {
+        "sha256": "a689146a4a0684da27e3ec260c6a8fb2ce0d98787d4c027607b278261014b336"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-sentinels_1.4.4-0ubuntu2~noble1.tar.xz"
+    },
+    {
+      "digest": {
+        "sha256": "170baf3d87624b487d5266f380b690c233fc11758f4538bac1062913219c0b09"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-sentinels_1.4.4-0ubuntu2~noble1_source.buildinfo"
+    },
+    {
+      "digest": {
+        "sha256": "4b67cdf4e113bbdb7069d0a16d132070074217a325a75a22f17bc4b268e88e47"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "qa-sentinels_1.4.4-0ubuntu2~noble1_source.changes"
+    }
+  ]
+}
