@@ -5,3 +5,6 @@ __pycache__/
 release/BOARD.md
 release/cache/
 release/.ledger.lock
+release/ledger.jsonl
+release/attestations
+
