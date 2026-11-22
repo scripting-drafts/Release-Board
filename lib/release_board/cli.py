@@ -104,10 +104,36 @@ def cmd_config(args: argparse.Namespace) -> int:
             config["refreshSeconds"] = max(15, int(patch["refreshSeconds"]))
         if "profiles" in patch and isinstance(patch["profiles"], dict):
             config.setdefault("profiles", {}).update(patch["profiles"])
-        if "deployments" in patch and isinstance(patch["deployments"], dict):
-            config.setdefault("deployments", {}).update(patch["deployments"])
-        if "repoHosts" in patch and isinstance(patch["repoHosts"], dict):
-            config.setdefault("repoHosts", {}).update(patch["repoHosts"])
+        if "deployments" in patch:
+            deployments = patch["deployments"]
+            if not isinstance(deployments, dict):
+                raise SystemExit("deployments must be a JSON object")
+            clean: dict[str, dict[str, Any]] = {}
+            for name, entry in deployments.items():
+                key = str(name).strip()
+                if not key:
+                    raise SystemExit("deployment environment names must not be empty")
+                if not isinstance(entry, dict):
+                    raise SystemExit(f"deployment environment {key} must be a JSON object")
+                clean[key] = dict(entry)
+            if not clean:
+                raise SystemExit("at least one deployment environment is required")
+            config["deployments"] = clean
+        if "repoHosts" in patch:
+            hosts = patch["repoHosts"]
+            if not isinstance(hosts, dict):
+                raise SystemExit("repoHosts must be a JSON object")
+            clean_hosts: dict[str, str] = {}
+            for name, url in hosts.items():
+                key = str(name).strip()
+                if not key:
+                    raise SystemExit("repository host names must not be empty")
+                if not isinstance(url, str) or not url.strip():
+                    raise SystemExit(f"repository host {key} needs a base URL")
+                clean_hosts[key] = url.strip()
+            if not clean_hosts:
+                raise SystemExit("at least one repository host is required")
+            config["repoHosts"] = clean_hosts
         save_config(config)
     payload = config_summary(config)
     payload["version"] = __version__

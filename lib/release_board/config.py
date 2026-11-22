@@ -61,10 +61,10 @@ def load_config() -> dict[str, Any]:
         for key, value in stored.items():
             if key == "profiles" and isinstance(value, dict):
                 config["profiles"].update(value)
-            elif key == "deployments" and isinstance(value, dict):
-                config["deployments"].update(value)
-            elif key == "repoHosts" and isinstance(value, dict):
-                config["repoHosts"].update(value)
+            elif key in {"deployments", "repoHosts"} and isinstance(value, dict):
+                # The UI edits these as complete lists. Storing them as a
+                # replacement lets an environment or host be removed again.
+                config[key] = copy.deepcopy(value)
             else:
                 config[key] = value
     return config

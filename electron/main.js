@@ -101,13 +101,30 @@ function validateRoot(root, config) {
   return resolved;
 }
 
-function safeExternal(url) {
+function configuredExternalHosts(config) {
+  const hosts = new Set();
+  const add = (value) => {
+    try {
+      const parsed = new URL(String(value).replace(/\{[^}]+\}/g, "user"));
+      if (parsed.protocol === "https:") hosts.add(parsed.hostname);
+    } catch {
+      // Ignore malformed optional host templates.
+    }
+  };
+  for (const url of Object.values(config?.repoHosts || {})) add(url);
+  for (const deployment of Object.values(config?.deployments || {})) {
+    if (!deployment || typeof deployment !== "object") continue;
+    for (const key of ["api", "archive", "web"]) add(deployment[key]);
+  }
+  return hosts;
+}
+
+function safeExternal(url, config = configCache) {
   try {
     const parsed = new URL(url);
-    return (
-      parsed.protocol === "https:" &&
-      (parsed.hostname === "launchpad.net" || parsed.hostname.endsWith(".launchpad.net"))
-    );
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.hostname === "launchpad.net" || parsed.hostname.endsWith(".launchpad.net")) return true;
+    return configuredExternalHosts(config).has(parsed.hostname);
   } catch {
     return false;
   }
@@ -272,6 +289,27 @@ function registerIpc() {
         }
       }
     }
+    if (patch.repoHosts !== undefined) {
+      if (!patch.repoHosts || typeof patch.repoHosts !== "object" || Array.isArray(patch.repoHosts)) {
+        return { ok: false, error: "repository hosts must be an object" };
+      }
+      if (Object.keys(patch.repoHosts).length === 0) {
+        return { ok: false, error: "configure at least one repository host" };
+      }
+    }
+    if (patch.deployments !== undefined) {
+      if (!patch.deployments || typeof patch.deployments !== "object" || Array.isArray(patch.deployments)) {
+        return { ok: false, error: "deployment environments must be an object" };
+      }
+      if (Object.keys(patch.deployments).length === 0) {
+        return { ok: false, error: "configure at least one deployment environment" };
+      }
+      for (const [name, deployment] of Object.entries(patch.deployments)) {
+        if (!name.trim() || !deployment || typeof deployment !== "object" || Array.isArray(deployment)) {
+          return { ok: false, error: "each deployment environment needs a name and an object" };
+        }
+      }
+    }
     const result = await cli(["config", "--patch-json", JSON.stringify(patch), "--json"]);
     configCache = null;
     return result;
@@ -280,7 +318,8 @@ function registerIpc() {
   ipcMain.handle("zed:open", async () => cli(["workspace"], 30000));
 
   ipcMain.handle("open:url", async (_event, url) => {
-    if (!safeExternal(url)) return { ok: false, error: "blocked URL" };
+    const config = await getConfig();
+    if (!safeExternal(url, config)) return { ok: false, error: "blocked URL" };
     await shell.openExternal(url);
     return { ok: true };
   });

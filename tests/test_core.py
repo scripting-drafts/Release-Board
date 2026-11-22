@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
-from release_board.config import deployment_for, roots  # noqa: E402
+from release_board.config import deployment_for, load_config, roots, save_config  # noqa: E402
 from release_board.compare import (  # noqa: E402
     _anomaly_paths,
     _make_anomaly_repo,
@@ -386,6 +386,7 @@ class ConfigTests(unittest.TestCase):
                     "name": "Demo",
                     "path": "/tmp/demo",
                     "remote": "upstream",
+                    "host": "gitlab",
                     "deployment": "staging",
                 }
             ],
@@ -400,10 +401,30 @@ class ConfigTests(unittest.TestCase):
         }
         entries = roots(config)
         self.assertEqual(entries[0]["remote"], "upstream")
+        self.assertEqual(entries[0]["host"], "gitlab")
         self.assertEqual(entries[0]["deployment"], "staging")
         deployment = deployment_for("staging", config)
         self.assertEqual(deployment["user"], "staging-user")
         self.assertEqual(deployment["api"], "https://example.invalid/api")
+
+    def test_stored_hosts_and_deployments_replace_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": tmp}):
+                save_config(
+                    {
+                        "repoHosts": {"internal": "https://git.example.invalid"},
+                        "deployments": {
+                            "staging": {
+                                "kind": "launchpad",
+                                "user": "staging-user",
+                                "api": "https://example.invalid/api",
+                            }
+                        },
+                    }
+                )
+                config = load_config()
+        self.assertEqual(set(config["repoHosts"]), {"internal"})
+        self.assertEqual(set(config["deployments"]), {"staging"})
 
 
 class LedgerTests(unittest.TestCase):

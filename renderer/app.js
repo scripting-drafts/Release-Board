@@ -33,7 +33,7 @@ const titles = {
   launchpad: ["Launchpad monitor", "Upload, build and publication state per series"],
   trace: ["Release traceability", "Signed tags, embedded provenance and the release ledger"],
   tasks: ["Lifecycle tasks", "Build, test, package and upload through the shared CLI"],
-  settings: ["Settings", "Configured roots and release identity"],
+  settings: ["Settings", "Roots, repository hosts and deployment environments"],
 };
 
 function h(tag, className, text) {
@@ -1205,32 +1205,154 @@ function renderTasks() {
   node.append(consoleNode);
 }
 
+function fillSelect(select, names, fallback) {
+  const current = select.value || select.dataset.value || "";
+  const list = names.filter(Boolean);
+  if (!list.length) list.push(fallback);
+  if (current && !list.includes(current)) list.push(current);
+  clear(select);
+  for (const name of list) {
+    const option = h("option", "", names.includes(name) ? name : `${name} (missing)`);
+    option.value = name;
+    select.append(option);
+  }
+  const selected = list.includes(current) ? current : list[0];
+  select.value = selected;
+  select.dataset.value = selected;
+}
+
+function choiceNames(container, selector) {
+  return [
+    ...new Set(
+      [...container.querySelectorAll(selector)]
+        .map((input) => input.value.trim())
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function refreshRootChoices() {
+  const rootBox = document.getElementById("settings-roots");
+  const hostBox = document.getElementById("settings-hosts");
+  const deploymentBox = document.getElementById("settings-deployments");
+  if (!rootBox || !hostBox || !deploymentBox) return;
+  const hosts = choiceNames(hostBox, ".host-name");
+  const deployments = choiceNames(deploymentBox, ".deployment-name");
+  for (const row of rootBox.querySelectorAll(".root-edit")) {
+    fillSelect(row.querySelector(".root-host"), hosts, "github");
+    fillSelect(row.querySelector(".root-deployment"), deployments, "launchpad");
+  }
+}
+
+function renameRootChoice(input, selector) {
+  const previous = input.dataset.lastName || "";
+  const next = input.value.trim();
+  if (previous && next && previous !== next) {
+    const rootBox = document.getElementById("settings-roots");
+    for (const select of rootBox?.querySelectorAll(selector) || []) {
+      if (select.value === previous) {
+        select.value = "";
+        select.dataset.value = next;
+      }
+    }
+  }
+  input.dataset.lastName = next;
+  refreshRootChoices();
+}
+
+function isHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value).replace(/\{[^}]+\}/g, "user"));
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function renderSettings() {
   const node = document.getElementById("view-settings");
   clear(node);
   const config = state.config;
   if (!config) return;
-  const card = h("div", "card");
-  card.append(h("h3", "", "Project roots"));
-  card.append(h("div", "card-sub", "Each root is opened as a separate project in one Zed window."));
+
+  const hostCard = h("div", "card");
+  hostCard.append(h("h3", "", "Repository hosts"));
+  hostCard.append(
+    h("div", "card-sub", "Named Git host base URLs. Each project root selects one of these hosts.")
+  );
+  const hostBox = h("div", "stack card-block");
+  hostBox.id = "settings-hosts";
+  const hostEntries = config.repoHosts && Object.keys(config.repoHosts).length ? config.repoHosts : { github: "https://github.com" };
+  for (const [name, url] of Object.entries(hostEntries)) hostBox.append(hostEditRow(name, url));
+  hostBox.addEventListener("input", (event) => {
+    if (event.target.classList.contains("host-name")) renameRootChoice(event.target, ".root-host");
+  });
+  hostCard.append(hostBox);
+  const hostActions = h("div", "toolbar card-block");
+  hostActions.append(
+    button("Add host", "ghost", () => {
+      hostBox.append(hostEditRow("", ""));
+      refreshRootChoices();
+    })
+  );
+  hostCard.append(hostActions);
+
+  const deploymentCard = h("div", "card");
+  deploymentCard.append(h("h3", "", "Deployment environments"));
+  deploymentCard.append(
+    h("div", "card-sub", "Upload and monitoring targets. {user} expands to the environment user.")
+  );
+  const deploymentBox = h("div", "stack card-block");
+  deploymentBox.id = "settings-deployments";
+  const deploymentEntries =
+    config.deployments && Object.keys(config.deployments).length ? config.deployments : { launchpad: {} };
+  for (const [name, deployment] of Object.entries(deploymentEntries)) {
+    deploymentBox.append(deploymentEditRow(name, deployment || {}, config.launchpadUser || ""));
+  }
+  deploymentBox.addEventListener("input", (event) => {
+    if (event.target.classList.contains("deployment-name")) renameRootChoice(event.target, ".root-deployment");
+  });
+  deploymentCard.append(deploymentBox);
+  const deploymentActions = h("div", "toolbar card-block");
+  deploymentActions.append(
+    button("Add environment", "ghost", () => {
+      deploymentBox.append(deploymentEditRow("", {}, config.launchpadUser || ""));
+      refreshRootChoices();
+    })
+  );
+  deploymentCard.append(deploymentActions);
+
+  const rootCard = h("div", "card");
+  rootCard.append(h("h3", "", "Project roots"));
+  rootCard.append(h("div", "card-sub", "Each root is opened as a separate project in one Zed window."));
   const rootBox = h("div", "stack card-block");
   rootBox.id = "settings-roots";
   for (const root of config.roots || []) {
-    rootBox.append(rootEditRow(root.name, root.path, root.remote || "origin", root.deployment || "launchpad"));
+    rootBox.append(
+      rootEditRow(root.name, root.path, root.remote || "origin", root.host || "github", root.deployment || "launchpad")
+    );
   }
-  card.append(rootBox);
-  const add = button("Add root", "ghost", () => {
-    rootBox.append(rootEditRow("", "", "origin", "launchpad"));
-  });
-  const addBar = h("div", "toolbar card-block");
-  addBar.append(add);
-  card.append(addBar);
+  rootCard.append(rootBox);
+  const rootActions = h("div", "toolbar card-block");
+  rootActions.append(
+    button("Add root", "ghost", () => {
+      rootBox.append(rootEditRow("", "", "origin", "github", "launchpad"));
+      refreshRootChoices();
+    })
+  );
+  rootCard.append(rootActions);
 
-  const form = h("div", "form-grid");
+  const identityCard = h("div", "card");
+  identityCard.append(h("h3", "", "Release identity"));
+  identityCard.append(
+    h("div", "card-sub", "Fallback identity and refresh interval for every configured root.")
+  );
+  const form = h("div", "form-grid card-block");
   const userLabel = h("label", "field");
-  userLabel.append(h("span", "", "Launchpad user"));
+  userLabel.append(h("span", "", "Fallback Launchpad user"));
   const userInput = h("input");
   userInput.type = "text";
+  userInput.placeholder = "toomanypatterns";
   userInput.value = config.launchpadUser || "";
   userLabel.append(userInput);
   const keyLabel = h("label", "field");
@@ -1246,48 +1368,100 @@ function renderSettings() {
   refreshInput.min = "15";
   refreshInput.value = config.refreshSeconds || 60;
   refreshLabel.append(refreshInput);
-  const deployment = (config.deployments || {}).launchpad || {};
-  const apiLabel = h("label", "field");
-  apiLabel.append(h("span", "", "Launchpad API base"));
-  const apiInput = h("input");
-  apiInput.type = "text";
-  apiInput.value = deployment.api || "https://api.launchpad.net/1.0";
-  apiLabel.append(apiInput);
-  const archiveLabel = h("label", "field");
-  archiveLabel.append(h("span", "", "Archive base"));
-  const archiveInput = h("input");
-  archiveInput.type = "text";
-  archiveInput.value = deployment.archive || "https://ppa.launchpadcontent.net/{user}";
-  archiveLabel.append(archiveInput);
-  const webLabel = h("label", "field");
-  webLabel.append(h("span", "", "Launchpad web base"));
-  const webInput = h("input");
-  webInput.type = "text";
-  webInput.value = deployment.web || "https://launchpad.net/~{user}/+archive/ubuntu";
-  webLabel.append(webInput);
-  form.append(userLabel, keyLabel, refreshLabel, apiLabel, archiveLabel, webLabel);
-  card.append(h("h3", "card-section-title", "Release identity"));
-  card.append(form);
+  form.append(userLabel, keyLabel, refreshLabel);
+  identityCard.append(form);
+  if (config.path) identityCard.append(h("div", "card-sub", `Configuration file · ${config.path}`));
 
-  const actions = h("div", "toolbar card-actions");
   const save = button("Save settings", "primary", async () => {
+    const hosts = {};
+    for (const row of hostBox.querySelectorAll(".host-edit")) {
+      const name = row.querySelector(".host-name").value.trim();
+      const url = row.querySelector(".host-url").value.trim();
+      if (!name && !url) continue;
+      if (!name || !url) {
+        notice("Each repository host needs a name and a base URL.", true);
+        return;
+      }
+      if (Object.prototype.hasOwnProperty.call(hosts, name)) {
+        notice(`Duplicate repository host: ${name}`, true);
+        return;
+      }
+      if (!isHttpUrl(url)) {
+        notice(`Repository host ${name} needs an http(s) base URL.`, true);
+        return;
+      }
+      hosts[name] = url;
+    }
+    if (!Object.keys(hosts).length) {
+      notice("Configure at least one repository host.", true);
+      return;
+    }
+
+    const deployments = {};
+    for (const row of deploymentBox.querySelectorAll(".deployment-edit")) {
+      const name = row.querySelector(".deployment-name").value.trim();
+      const deployment = {
+        kind: row.querySelector(".deployment-kind").value.trim() || "launchpad",
+        user: row.querySelector(".deployment-user").value.trim(),
+        api: row.querySelector(".deployment-api").value.trim(),
+        archive: row.querySelector(".deployment-archive").value.trim(),
+        web: row.querySelector(".deployment-web").value.trim(),
+      };
+      if (!name) {
+        if (Object.values(deployment).some(Boolean)) {
+          notice("Each deployment environment needs a name.", true);
+          return;
+        }
+        continue;
+      }
+      if (Object.prototype.hasOwnProperty.call(deployments, name)) {
+        notice(`Duplicate deployment environment: ${name}`, true);
+        return;
+      }
+      for (const key of ["api", "archive", "web"]) {
+        if (deployment[key] && !isHttpUrl(deployment[key])) {
+          notice(`${name}: ${key} needs an http(s) URL.`, true);
+          return;
+        }
+      }
+      deployments[name] = deployment;
+    }
+    if (!Object.keys(deployments).length) {
+      notice("Configure at least one deployment environment.", true);
+      return;
+    }
+
     const roots = [...rootBox.querySelectorAll(".root-edit")].map((row) => ({
       name: row.querySelector(".root-name").value.trim(),
       path: row.querySelector(".root-path").value.trim(),
       remote: row.querySelector(".root-remote").value.trim() || "origin",
+      host: row.querySelector(".root-host").value.trim() || "github",
       deployment: row.querySelector(".root-deployment").value.trim() || "launchpad",
     }));
+    if (!roots.length) {
+      notice("Configure at least one project root.", true);
+      return;
+    }
+    for (const root of roots) {
+      if (!root.name || !root.path) {
+        notice("Each project root needs a name and an absolute path.", true);
+        return;
+      }
+      if (!Object.prototype.hasOwnProperty.call(hosts, root.host)) {
+        notice(`Root "${root.name}" references undefined host "${root.host}".`, true);
+        return;
+      }
+      if (!Object.prototype.hasOwnProperty.call(deployments, root.deployment)) {
+        notice(`Root "${root.name}" references undefined environment "${root.deployment}".`, true);
+        return;
+      }
+    }
+
     const patch = {
       roots,
+      repoHosts: hosts,
+      deployments,
       launchpadUser: userInput.value.trim(),
-      deployments: {
-        launchpad: {
-          user: userInput.value.trim(),
-          api: apiInput.value.trim(),
-          archive: archiveInput.value.trim(),
-          web: webInput.value.trim(),
-        },
-      },
       signKey: keyInput.value.trim(),
       refreshSeconds: Number(refreshInput.value) || 60,
     };
@@ -1300,17 +1474,21 @@ function renderSettings() {
     await refresh(false, true);
     setView("settings");
   });
+  const actions = h("div", "toolbar card-actions");
   actions.append(save);
-  const reset = button("Reload", "ghost", async () => {
-    await refresh(false, true);
-    renderSettings();
-  });
-  actions.append(reset);
-  card.append(actions);
-  node.append(card);
+  actions.append(
+    button("Reload", "ghost", async () => {
+      await refresh(false, true);
+      renderSettings();
+    })
+  );
+  identityCard.append(actions);
+
+  node.append(rootCard, hostCard, deploymentCard, identityCard);
+  refreshRootChoices();
 }
 
-function rootEditRow(name, path, remote = "origin", deployment = "launchpad") {
+function rootEditRow(name, path, remote = "origin", host = "github", deployment = "launchpad") {
   const row = h("div", "root-edit");
   const nameInput = h("input");
   nameInput.type = "text";
@@ -1327,13 +1505,102 @@ function rootEditRow(name, path, remote = "origin", deployment = "launchpad") {
   remoteInput.className = "root-remote";
   remoteInput.placeholder = "origin";
   remoteInput.value = remote || "origin";
-  const deploymentInput = h("input");
-  deploymentInput.type = "text";
-  deploymentInput.className = "root-deployment";
-  deploymentInput.placeholder = "launchpad";
-  deploymentInput.value = deployment || "launchpad";
-  const remove = button("Remove", "subtle", () => row.remove());
-  row.append(nameInput, pathInput, remoteInput, deploymentInput, remove);
+  const hostSelect = h("select");
+  hostSelect.className = "root-host";
+  hostSelect.dataset.value = host || "github";
+  const deploymentSelect = h("select");
+  deploymentSelect.className = "root-deployment";
+  deploymentSelect.dataset.value = deployment || "launchpad";
+  const remove = button("Remove", "subtle", () => {
+    row.remove();
+    refreshRootChoices();
+  });
+  row.append(nameInput, pathInput, remoteInput, hostSelect, deploymentSelect, remove);
+  return row;
+}
+
+function hostEditRow(name, url) {
+  const row = h("div", "host-edit");
+  const nameInput = h("input");
+  nameInput.type = "text";
+  nameInput.className = "host-name";
+  nameInput.placeholder = "github";
+  nameInput.value = name || "";
+  nameInput.dataset.lastName = name || "";
+  const urlInput = h("input");
+  urlInput.type = "text";
+  urlInput.className = "host-url";
+  urlInput.placeholder = "https://github.com";
+  urlInput.value = url || "";
+  const remove = button("Remove", "subtle", () => {
+    row.remove();
+    refreshRootChoices();
+  });
+  row.append(nameInput, urlInput, remove);
+  return row;
+}
+
+function deploymentEditRow(name, deployment = {}, fallbackUser = "") {
+  const row = h("div", "deployment-edit");
+  const head = h("div", "deployment-head");
+  const nameField = h("label", "field");
+  nameField.append(h("span", "", "Environment"));
+  const nameInput = h("input");
+  nameInput.type = "text";
+  nameInput.className = "deployment-name";
+  nameInput.placeholder = "launchpad";
+  nameInput.value = name || "";
+  nameInput.dataset.lastName = name || "";
+  nameField.append(nameInput);
+  const kindField = h("label", "field");
+  kindField.append(h("span", "", "Kind"));
+  const kindSelect = h("select");
+  kindSelect.className = "deployment-kind";
+  const kinds = ["launchpad"];
+  const currentKind = deployment.kind || "launchpad";
+  if (!kinds.includes(currentKind)) kinds.push(currentKind);
+  for (const kind of kinds) {
+    const option = h("option", "", kind);
+    option.value = kind;
+    kindSelect.append(option);
+  }
+  kindSelect.value = currentKind;
+  kindField.append(kindSelect);
+  const remove = button("Remove", "subtle", () => {
+    row.remove();
+    refreshRootChoices();
+  });
+  head.append(nameField, kindField, remove);
+
+  const grid = h("div", "form-grid");
+  const fields = [
+    ["User", "deployment-user", fallbackUser || "user", deployment.user ?? fallbackUser],
+    ["API base", "deployment-api", "https://api.launchpad.net/1.0", deployment.api || "https://api.launchpad.net/1.0"],
+    [
+      "Archive base",
+      "deployment-archive",
+      "https://ppa.launchpadcontent.net/{user}",
+      deployment.archive || "https://ppa.launchpadcontent.net/{user}",
+    ],
+    [
+      "Web base",
+      "deployment-web",
+      "https://launchpad.net/~{user}/+archive/ubuntu",
+      deployment.web || "https://launchpad.net/~{user}/+archive/ubuntu",
+    ],
+  ];
+  for (const [labelText, className, placeholder, value] of fields) {
+    const field = h("label", "field");
+    field.append(h("span", "", labelText));
+    const input = h("input");
+    input.type = "text";
+    input.className = className;
+    input.placeholder = placeholder;
+    input.value = value == null ? "" : String(value);
+    field.append(input);
+    grid.append(field);
+  }
+  row.append(head, grid);
   return row;
 }
 
