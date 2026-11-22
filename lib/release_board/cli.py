@@ -10,6 +10,7 @@ from typing import Any
 
 from . import __version__
 from .board import build_board, render_markdown, write_board
+from .bootstrap import BootstrapError, bootstrap
 from .compare import (
     clean_diffs,
     compare_cli_payload,
@@ -340,6 +341,45 @@ def cmd_check(args: argparse.Namespace) -> int:
                 f"published={row.get('publishedVersion') or '—'} state={row.get('state')}"
             )
     return 0 if payload.get("ok") else 1
+
+
+def cmd_bootstrap(args: argparse.Namespace) -> int:
+    config = load_config()
+    root = _resolve_root(args.root, config)
+    try:
+        payload = bootstrap(
+            root,
+            config,
+            package=args.package,
+            version=args.version,
+            distribution=args.distribution,
+            maintainer=args.maintainer,
+            description=args.description,
+            series=args.series,
+            commit=args.commit,
+            dry_run=args.dry_run,
+        )
+    except BootstrapError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if args.json:
+        _print(payload, True)
+    else:
+        print(f"package:   {payload['package']} {payload['version']}")
+        print(f"root:      {payload['root']}")
+        print(f"series:    {', '.join(payload['series'])}")
+        print(f"dput:      {payload['dput']['path']}"
+              f"{' (created)' if payload['dput']['created'] else ' (present)'}")
+        print(f"signing:   {payload['signingKey']['message']}")
+        for path in payload["files"]:
+            print(f"  created: {path}")
+        if payload["dryRun"]:
+            print("dry run: no files were written")
+        elif payload["committed"]:
+            print("commit:    created")
+        else:
+            print("next:      review the files, then commit them before preflight")
+    return 0 if payload["ok"] else 1
 
 
 def cmd_test(args: argparse.Namespace) -> int:
@@ -686,6 +726,17 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("check", cmd_check, "run release preflight")
     p.add_argument("--root", default="")
     p.add_argument("--require-tag", action="store_true", help="require a signed, pushed tag")
+
+    p = add("bootstrap", cmd_bootstrap, "generate first-release Debian source metadata")
+    p.add_argument("--root", default="")
+    p.add_argument("--package", default="")
+    p.add_argument("--version", default="0.1.0")
+    p.add_argument("--distribution", default="jammy")
+    p.add_argument("--maintainer", default="")
+    p.add_argument("--description", default="")
+    p.add_argument("--series", action="append", default=[])
+    p.add_argument("--commit", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
 
     p = add("test", cmd_test, "run the package test command")
     p.add_argument("--root", default="")

@@ -335,6 +335,7 @@ function registerIpc() {
     const root = validateRoot(request?.root, config);
     const allowed = {
       check: ["check", "--root", root],
+      bootstrap: ["bootstrap", "--root", root],
       test: ["test", "--root", root],
       push: ["push-release", "--root", root],
       pipeline: ["pipeline", "--root", root, "--confirm"],

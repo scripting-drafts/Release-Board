@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
+from release_board.bootstrap import BootstrapError, bootstrap  # noqa: E402
 from release_board.config import deployment_for, load_config, roots, save_config  # noqa: E402
 from release_board.compare import (  # noqa: E402
     _anomaly_paths,
@@ -21,7 +22,7 @@ from release_board.compare import (  # noqa: E402
     compare_root,
 )
 from release_board.launchpad import _source_entry, _targets, status_for  # noqa: E402
-from release_board.packaging import parse_control  # noqa: E402
+from release_board.packaging import inspect_package, parse_control  # noqa: E402
 from release_board.pipeline import release_pipeline  # noqa: E402
 from release_board.release import (  # noqa: E402
     _changelog_entry,
@@ -528,6 +529,66 @@ class BoardTests(unittest.TestCase):
         self.assertIn("demo", text)
         self.assertIn("noble (untested)", text)
         self.assertIn("1.0-0ubuntu1~noble1", text)
+
+
+class BootstrapTests(unittest.TestCase):
+    def _repo(self, root: Path) -> Path:
+        repo = root / "Faultlab"
+        repo.mkdir()
+        run(["git", "init", "-q", "-b", "main"], cwd=repo)
+        run(["git", "config", "user.name", "Test User"], cwd=repo)
+        run(["git", "config", "user.email", "test@example.invalid"], cwd=repo)
+        (repo / "README.md").write_text(
+            "# Faultlab\n\nClassify and isolate a degrading CPU core.\n", encoding="utf-8"
+        )
+        (repo / "bin").mkdir()
+        (repo / "bin" / "faultlab").write_text("#!/bin/sh\n", encoding="utf-8")
+        run(["git", "add", "-A"], cwd=repo)
+        run(["git", "commit", "-qm", "initial"], cwd=repo)
+        return repo
+
+    def test_first_release_scaffold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            repo = self._repo(home)
+            env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
+            with patch.dict(os.environ, env), \
+                 patch("release_board.bootstrap._signing_key_ok",
+                       return_value=(True, "secret key present")), \
+                 patch("release_board.packaging._signing_key_ok",
+                       return_value=(True, "secret key present")):
+                config = load_config()
+                config["roots"] = [
+                    {"name": "Faultlab", "path": str(repo), "deployment": "launchpad"}
+                ]
+                payload = bootstrap(repo, config, commit=False)
+                self.assertTrue(payload["ok"])
+                self.assertTrue((repo / "debian" / "changelog").is_file())
+                self.assertTrue((repo / "debian" / "control").is_file())
+                self.assertTrue((repo / "debian" / "rules").is_file())
+                self.assertTrue((repo / "debian" / "source" / "format").is_file())
+                self.assertTrue((repo / "debian" / "faultlab.install").is_file())
+                self.assertTrue((home / ".dput.cf").is_file())
+                self.assertIn("[faultlab]", (home / ".dput.cf").read_text())
+                reloaded = load_config()
+                self.assertIn("faultlab", reloaded["profiles"])
+                package = inspect_package(repo, reloaded)
+                self.assertEqual(package["errors"], [])
+                self.assertTrue(package["dput"]["configured"])
+
+    def test_scaffold_is_limited_to_source_deployments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            repo = self._repo(home)
+            env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
+            with patch.dict(os.environ, env):
+                config = load_config()
+                config["deployments"] = {"static": {"kind": "static"}}
+                config["roots"] = [
+                    {"name": "Faultlab", "path": str(repo), "deployment": "static"}
+                ]
+                with self.assertRaises(BootstrapError):
+                    bootstrap(repo, config)
 
 
 if __name__ == "__main__":
