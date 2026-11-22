@@ -1,0 +1,91 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://github.com/scripting-drafts/Release-Board/slsa/debian-source/v1",
+      "externalParameters": {
+        "baseVersion": "0.1.0",
+        "package": "faultlab",
+        "revision": 1,
+        "series": "jammy",
+        "source": {
+          "digest": {
+            "gitCommit": "f3383b23d77edd7cfec3e10753d8875be8ec0464"
+          },
+          "ref": "v0.1.0",
+          "uri": "https://github.com/scripting-drafts/Faultlab.git"
+        },
+        "version": "0.1.0-0ubuntu1~jammy1"
+      },
+      "internalParameters": {
+        "builder": "release-board/0.9.17",
+        "command": [
+          "dpkg-buildpackage",
+          "-S",
+          "-sa",
+          "-kF104A3F1CE9A23540AEB8F24F31978E49E85DDCA"
+        ],
+        "tagObject": "136f426f2250e698157ef5c52f270bbe279f5677",
+        "tagVerified": true,
+        "tree": "e32241ed43c1818fc2920b47fe06893b693811ee"
+      },
+      "resolvedDependencies": [
+        {
+          "annotations": {
+            "ref": "v0.1.0",
+            "tree": "e32241ed43c1818fc2920b47fe06893b693811ee"
+          },
+          "digest": {
+            "gitCommit": "f3383b23d77edd7cfec3e10753d8875be8ec0464"
+          },
+          "uri": "https://github.com/scripting-drafts/Faultlab.git"
+        }
+      ]
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/scripting-drafts/Release-Board",
+        "version": {
+          "release-board": "0.9.17"
+        }
+      },
+      "byproducts": [],
+      "metadata": {
+        "finishedOn": "2026-11-22T18:18:43+00:00",
+        "invocationId": "08672b85-30a3-4354-8484-364287a2527b",
+        "startedOn": "2026-11-22T18:18:40+00:00"
+      }
+    }
+  },
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "65c500fa6b0b81a9f939ba2153d6bdab19e77baacf5b478e59b212c4ca0cbc34"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "faultlab_0.1.0-0ubuntu1~jammy1.dsc"
+    },
+    {
+      "digest": {
+        "sha256": "d90d16969727ba34a9bddad6bc3d4bbbfbcfcc14947559e08e55c9b02d208788"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "faultlab_0.1.0-0ubuntu1~jammy1.tar.xz"
+    },
+    {
+      "digest": {
+        "sha256": "c36f75ec70bdeaa81b15d79daad23f6d0b889831be0b09acc23772635ece22b4"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "faultlab_0.1.0-0ubuntu1~jammy1_source.buildinfo"
+    },
+    {
+      "digest": {
+        "sha256": "9388053ca059bd94f9f4ccba9b4afd1f479e1c201aeaea826e5670abdf1ab4ad"
+      },
+      "mediaType": "application/octet-stream",
+      "name": "faultlab_0.1.0-0ubuntu1~jammy1_source.changes"
+    }
+  ]
+}
