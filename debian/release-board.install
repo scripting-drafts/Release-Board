@@ -1,0 +1,3 @@
+bin/* usr/bin/
+lib/* usr/lib/
+docs/* usr/share/doc/release-board/

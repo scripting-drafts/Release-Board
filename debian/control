@@ -1,0 +1,15 @@
+Source: release-board
+Section: utils
+Priority: optional
+Maintainer: scripting-drafts <12766134+scripting-drafts@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/scripting-drafts/Release-Board
+Vcs-Git: https://github.com/scripting-drafts/Release-Board.git
+
+Package: release-board
+Architecture: all
+Depends: ${misc:Depends}
+Description: Standalone release cockpit for Debian/Ubuntu packages published to Launchpad.
+ Standalone release cockpit for Debian/Ubuntu packages published to Launchpad.

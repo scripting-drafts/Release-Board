@@ -1,0 +1,5 @@
+release-board (0.1.0) jammy; urgency=medium
+
+  * Initial release.
+
+ -- scripting-drafts <12766134+scripting-drafts@users.noreply.github.com>  Sun, 22 Nov 2026 20:21:48 +0100
