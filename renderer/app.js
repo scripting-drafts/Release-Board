@@ -25,17 +25,6 @@ const state = {
   compareTimer: null,
 };
 
-const titles = {
-  overview: ["Overview", "Release state across every configured root"],
-  git: ["Git inspector", "Local branches, remote tracking and commit divergence"],
-  compare: ["Source diff", "Local Sources → Origin (main) → Released Sources"],
-  packaging: ["Packaging inspector", "Debian metadata, versions, tags and signing preflight"],
-  launchpad: ["Launchpad monitor", "Upload, build and publication state per series"],
-  trace: ["Release traceability", "Signed tags, embedded provenance and the release ledger"],
-  tasks: ["Lifecycle tasks", "Build, test, package and upload through the shared CLI"],
-  settings: ["Settings", "Roots, repository hosts and deployment environments"],
-};
-
 function h(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -180,10 +169,6 @@ function setView(view, fromUser = false) {
   document.querySelectorAll(".view").forEach((section) => {
     section.classList.toggle("hidden", section.id !== `view-${view}`);
   });
-  const [title, subtitle] = titles[view] || ["Release Board", ""];
-  document.getElementById("view-title").textContent = title;
-  document.getElementById("view-subtitle").textContent = subtitle;
-  document.getElementById("topbar").classList.toggle("hidden", view === "overview");
   renderView(view);
   if (view === "tasks") loadPipelineStatus();
   if (view === "compare" && state.compareRoot) loadCompare(state.compareRoot, true);
