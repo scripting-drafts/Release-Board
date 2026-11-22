@@ -6,15 +6,20 @@ const state = {
   board: null,
   config: null,
   view: "overview",
-  taskId: null,
   taskRoot: "",
-  taskLog: [],
+  tasks: {},
   compareRoot: "",
   compareOrigin: "main",
   compareData: null,
   compareLoading: false,
   compareError: "",
+  pipelineData: null,
+  pipelineLoading: false,
+  gitRefreshing: false,
+  userNavigated: false,
   timer: null,
+  gitTimer: null,
+  pipelineTimer: null,
 };
 
 const titles = {
@@ -796,21 +801,25 @@ function renderVerifyResult(data) {
   node.append(card);
 }
 
-function appendConsole(text, stream) {
-  state.taskLog.push({ text: String(text), stream });
+function taskFor(root = state.taskRoot) {
+  return state.tasks[root] || null;
+}
+
+function activeTask(root = state.taskRoot) {
+  const task = taskFor(root);
+  return task && task.id ? task : null;
+}
+
+function appendConsole(text, stream, root = state.taskRoot) {
+  const task = taskFor(root);
+  if (!task) return;
+  task.log.push({ text: String(text), stream });
+  if (root !== state.taskRoot || state.view !== "tasks") return;
   const consoleNode = document.getElementById("task-console");
   if (!consoleNode) return;
   const line = h("div", stream === "stderr" ? "issue bad" : "", String(text).replace(/\n$/, ""));
   consoleNode.append(line);
   consoleNode.scrollTop = consoleNode.scrollHeight;
-}
-
-function clearConsole() {
-  state.taskLog = [];
-  const consoleNode = document.getElementById("task-console");
-  if (!consoleNode) return;
-  clear(consoleNode);
-  consoleNode.append(h("div", "muted", "Task output appears here."));
 }
 
 function renderTasks() {
@@ -833,16 +842,40 @@ function renderTasks() {
   select.addEventListener("change", () => {
     state.taskRoot = select.value;
     state.pipelineData = null;
-    loadPipelineStatus();
+    renderTasks();
+    loadPipelineStatus(false);
   });
   label.append(select);
   toolbar.append(label);
   node.append(toolbar);
 
+  const active = Object.entries(state.tasks).filter(([, task]) => task.id);
+  if (active.length) {
+    const activeRow = h("div", "toolbar card-block");
+    for (const [rootPath, task] of active) {
+      const rootName = roots.find((root) => root.path === rootPath)?.name || rootPath;
+      const projectButton = button(
+        `${rootName} · ${task.name}${task.paused ? " · paused" : ""}`,
+        "subtle",
+        () => {
+          state.taskRoot = rootPath;
+          state.pipelineData = null;
+          renderTasks();
+          loadPipelineStatus(false);
+        }
+      );
+      activeRow.append(projectButton);
+    }
+    node.append(activeRow);
+  }
+
+  const selectedTask = taskFor();
+  const taskActive = Boolean(selectedTask?.id);
+  const paused = Boolean(selectedTask?.paused);
   const pipeline = state.pipelineData?.state || {};
-  const pipelineStatus = state.pipelinePaused
+  const pipelineStatus = paused
     ? "paused"
-    : state.taskId && pipeline.status === "running"
+    : taskActive && pipeline.status === "running"
       ? "running"
       : pipeline.status || "idle";
   const panel = h("div", "card pipeline-panel");
@@ -866,49 +899,46 @@ function renderTasks() {
     panel.append(conflicts);
   }
   const actions = h("div", "toolbar card-actions");
-  const taskActive = Boolean(state.taskId);
-  const canResume = state.pipelinePaused || ["stopped", "blocked", "failed"].includes(pipeline.status);
+  const canResume = paused || ["stopped", "blocked", "failed"].includes(pipeline.status);
   const start = button("Start", "primary", async () => {
     if (taskActive) return;
-    state.pipelinePaused = false;
     await runTask("pipeline");
     loadPipelineStatus();
   });
   const pause = button("Pause", "ghost", async () => {
-    if (!state.taskId || state.pipelinePaused) return;
-    const result = await api.pauseTask(state.taskId);
+    if (!taskActive || paused) return;
+    const result = await api.pauseTask(selectedTask.id);
     if (!result.ok) {
       notice(result.error || "could not pause task", true);
       return;
     }
-    state.pipelinePaused = true;
+    selectedTask.paused = true;
     notice("Pipeline paused.");
     renderTasks();
   });
   const stop = button("Stop", "danger", async () => {
-    if (!state.taskId) return;
-    const result = await api.cancelTask(state.taskId);
+    if (!taskActive) return;
+    const result = await api.cancelTask(selectedTask.id);
     if (!result.ok) {
       notice(result.error || "could not stop task", true);
       return;
     }
-    state.pipelinePaused = false;
+    selectedTask.paused = false;
     notice("Stopping pipeline…");
     loadPipelineStatus();
   });
   const resume = button("Resume", "ghost", async () => {
-    if (state.taskId && state.pipelinePaused) {
-      const result = await api.resumeTask(state.taskId);
+    if (taskActive && paused) {
+      const result = await api.resumeTask(selectedTask.id);
       if (!result.ok) {
         notice(result.error || "could not resume task", true);
         return;
       }
-      state.pipelinePaused = false;
+      selectedTask.paused = false;
       notice("Pipeline resumed.");
       renderTasks();
       return;
     }
-    state.pipelinePaused = false;
     await runTask("pipelineResume");
     loadPipelineStatus();
   });
@@ -921,7 +951,7 @@ function renderTasks() {
     notice(result.conflicts?.length ? "Opened conflicted files in Zed." : "Opened the repository in Zed.");
   });
   start.disabled = taskActive;
-  pause.disabled = !taskActive || state.pipelinePaused;
+  pause.disabled = !taskActive || paused;
   stop.disabled = !taskActive;
   resume.disabled = !canResume && !taskActive;
   resolve.disabled = !pipeline.conflicts?.length && pipeline.status !== "blocked";
@@ -957,10 +987,11 @@ function renderTasks() {
   node.append(header);
   const consoleNode = h("div", "console");
   consoleNode.id = "task-console";
-  if (!state.taskLog.length) {
+  const output = selectedTask?.log || [];
+  if (!output.length) {
     consoleNode.append(h("div", "muted", "Task output appears here."));
   } else {
-    for (const entry of state.taskLog) {
+    for (const entry of output) {
       consoleNode.append(h("div", entry.stream === "stderr" ? "issue bad" : "", entry.text.replace(/\n$/, "")));
     }
   }
@@ -1168,13 +1199,13 @@ async function loadPipelineStatus(rerender = true) {
 }
 
 async function runTask(name) {
-  if (state.taskId) {
-    notice("A task is already running. Cancel it first.", true);
-    return;
-  }
   const root = state.taskRoot;
   if (!root) {
     notice("Select a project root first.", true);
+    return;
+  }
+  if (activeTask(root)) {
+    notice("A task is already running for this project.", true);
     return;
   }
   const prompts = {
@@ -1218,19 +1249,25 @@ async function runTask(name) {
     const answer = await api.confirm(prompts[name]);
     if (!answer.ok) return;
   }
-  clearConsole();
-  const consoleNode = document.getElementById("task-console");
-  if (consoleNode) {
-    consoleNode.append(h("div", "muted", `$ release-board ${name} · ${root}`));
-  }
-  state.taskLog.push({ text: `$ release-board ${name} · ${root}`, stream: "stdout" });
+  const task = {
+    id: null,
+    name,
+    paused: false,
+    status: "starting",
+    log: [{ text: `$ release-board ${name} · ${root}`, stream: "stdout" }],
+  };
+  state.tasks[root] = task;
+  renderTasks();
   const result = await api.runTask({ name, root });
   if (!result.ok) {
+    task.status = "failed";
+    appendConsole(result.error || "task failed to start", "stderr", root);
     notice(result.error || "task failed to start", true);
+    renderTasks();
     return;
   }
-  state.taskId = result.id;
-  state.pipelinePaused = false;
+  task.id = result.id;
+  task.status = "running";
   notice("");
   if (name === "pipeline" || name === "pipelineResume") loadPipelineStatus();
 }
@@ -1240,15 +1277,27 @@ async function main() {
     button.addEventListener("click", () => setView(button.dataset.view, true));
   });
   api.onTaskOutput((payload) => {
-    if (payload.id !== state.taskId) return;
-    appendConsole(payload.chunk, payload.stream);
+    const entry = Object.entries(state.tasks).find(([, task]) => task.id === payload.id);
+    if (!entry) return;
+    appendConsole(payload.chunk, payload.stream, entry[0]);
   });
   api.onTaskDone((payload) => {
-    if (payload.id !== state.taskId) return;
-    state.taskId = null;
-    state.pipelinePaused = false;
-    appendConsole(`\n[task finished: ${payload.code === 0 ? "success" : `exit ${payload.code}`}]\n`, payload.code === 0 ? "stdout" : "stderr");
-    notice(payload.code === 0 ? "Task finished." : `Task exited with ${payload.code}.`, payload.code !== 0);
+    const entry = Object.entries(state.tasks).find(([, task]) => task.id === payload.id);
+    if (!entry) return;
+    const [root, task] = entry;
+    task.id = null;
+    task.paused = false;
+    task.status = payload.code === 0 ? "completed" : `exit ${payload.code}`;
+    appendConsole(
+      `\n[task finished: ${payload.code === 0 ? "success" : `exit ${payload.code}`}]\n`,
+      payload.code === 0 ? "stdout" : "stderr",
+      root
+    );
+    const rootName = state.config?.roots?.find((item) => item.path === root)?.name || root;
+    notice(
+      payload.code === 0 ? `${rootName}: task finished.` : `${rootName}: task exited with ${payload.code}.`,
+      payload.code !== 0
+    );
     refresh(false);
     loadPipelineStatus();
   });
@@ -1257,7 +1306,7 @@ async function main() {
   if (configResult.ok) state.config = configResult.data;
   await refresh(false);
   state.timer = setInterval(() => {
-    if (!state.taskId) refresh(false);
+    if (!Object.values(state.tasks).some((task) => task.id)) refresh(false);
   }, Math.max(15, Number(state.config?.refreshSeconds || 60)) * 1000);
   state.gitTimer = setInterval(refreshGitStatus, 5000);
   state.pipelineTimer = setInterval(() => {

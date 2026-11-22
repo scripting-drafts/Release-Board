@@ -315,7 +315,9 @@ function registerIpc() {
     };
     const args = allowed[request?.name];
     if (!args) return { ok: false, error: "unsupported task" };
-    if (running.size > 0) return { ok: false, error: "another task is already running" };
+    if ([...running.values()].some((entry) => entry.root === root)) {
+      return { ok: false, error: "a task is already running for this project" };
+    }
 
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const child = spawn("python3", [CLI, ...args], {
@@ -324,7 +326,7 @@ function registerIpc() {
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
-    running.set(id, child);
+    running.set(id, { child, root, name: request?.name || "task" });
     const send = (chunk, stream) => {
       if (!event.sender.isDestroyed()) {
         event.sender.send("task:output", { id, chunk: String(chunk), stream });
@@ -344,8 +346,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("task:pause", async (_event, id) => {
-    const child = running.get(String(id));
-    if (!child) return { ok: false, error: "task not running" };
+    const entry = running.get(String(id));
+    if (!entry) return { ok: false, error: "task not running" };
+    const child = entry.child;
     try {
       if (process.platform === "win32") {
         return { ok: false, error: "pause is not supported on Windows" };
@@ -359,8 +362,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("task:resume", async (_event, id) => {
-    const child = running.get(String(id));
-    if (!child) return { ok: false, error: "task not running" };
+    const entry = running.get(String(id));
+    if (!entry) return { ok: false, error: "task not running" };
+    const child = entry.child;
     try {
       if (process.platform === "win32") {
         return { ok: false, error: "resume is not supported on Windows" };
@@ -398,8 +402,9 @@ function registerIpc() {
   });
 
   ipcMain.handle("task:cancel", async (_event, id) => {
-    const child = running.get(String(id));
-    if (!child) return { ok: false, error: "task not running" };
+    const entry = running.get(String(id));
+    if (!entry) return { ok: false, error: "task not running" };
+    const child = entry.child;
     try {
       if (process.platform !== "win32") {
         if (paused.has(String(id))) process.kill(-child.pid, "SIGCONT");

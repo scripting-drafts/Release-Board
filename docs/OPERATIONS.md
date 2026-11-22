@@ -87,6 +87,10 @@ The app's pipeline panel provides **Start**, **Pause**, **Stop**, **Resume** and
 it. Stop terminates the group, and the saved state can be resumed. Resolve
 conflicts opens the conflicted files in Zed.
 
+Pipelines for different project roots can run concurrently. A second task for
+the same root is refused. Ledger appends and commits are serialized with a
+file lock, so concurrent projects cannot corrupt the shared ledger.
+
 If the sync step finds remote commits, it rebases before building. A rebase
 conflict blocks the pipeline and records the conflicted paths. Resolve them,
 run `git rebase --continue`, then resume the pipeline.

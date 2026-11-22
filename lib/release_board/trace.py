@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None
 
 from .config import ledger_file, load_config, roots
 from .slsa import verify_attestation
@@ -31,16 +37,33 @@ def read_ledger(config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     return entries
 
 
+@contextmanager
+def _ledger_lock(config: dict[str, Any]):
+    path = ledger_file(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / ".ledger.lock"
+    handle = lock_path.open("a+")
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
 def append_event(event: dict[str, Any], config: dict[str, Any] | None = None, commit: bool = False) -> Path:
     config = config or load_config()
     path = ledger_file(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schema": 1, "recordedAt": now_iso(), **event}
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
-        handle.flush()
-    if commit:
-        commit_ledger(config, payload)
+    with _ledger_lock(config):
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+            handle.flush()
+        if commit:
+            commit_ledger(config, payload)
     return path
 
 
