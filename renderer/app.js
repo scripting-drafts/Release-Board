@@ -98,8 +98,9 @@ function notice(message, error = false) {
   }
 }
 
-function setView(view) {
+function setView(view, fromUser = false) {
   state.view = view;
+  if (fromUser) state.userNavigated = true;
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
@@ -1236,7 +1237,7 @@ async function runTask(name) {
 
 async function main() {
   document.querySelectorAll(".nav-item").forEach((button) => {
-    button.addEventListener("click", () => setView(button.dataset.view));
+    button.addEventListener("click", () => setView(button.dataset.view, true));
   });
   api.onTaskOutput((payload) => {
     if (payload.id !== state.taskId) return;
@@ -1263,7 +1264,8 @@ async function main() {
     if (state.view === "tasks") loadPipelineStatus();
   }, 3000);
   window.addEventListener("focus", refreshGitStatus);
-  setView("overview");
+  // Do not overwrite a menu choice made while the initial data was loading.
+  setView(state.userNavigated ? state.view : "overview");
 }
 
 main();
