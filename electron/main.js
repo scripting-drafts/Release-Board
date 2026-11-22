@@ -193,7 +193,6 @@ function registerIpc() {
   ipcMain.handle("git:get", async (_event, options = {}) => {
     const args = ["git", "--json"];
     if (options.fetch) args.push("--fetch");
-    if (options.statusOnly) args.push("--status-only");
     return cli(args, 180000);
   });
 

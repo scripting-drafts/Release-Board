@@ -30,7 +30,7 @@ def _branch_records(root: Path, prefix: str) -> dict[str, dict[str, Any]]:
     return records
 
 
-def inspect_root(root: Path, fetch: bool = False, status_only: bool = False) -> dict[str, Any]:
+def inspect_root(root: Path, fetch: bool = False) -> dict[str, Any]:
     root = root.expanduser().resolve()
     result: dict[str, Any] = {
         "path": str(root),
@@ -108,9 +108,6 @@ def inspect_root(root: Path, fetch: bool = False, status_only: bool = False) -> 
         result["head"] = {}
 
     result["headTags"] = [tag for tag in git_out(["tag", "--points-at", "HEAD"], repo).splitlines() if tag]
-    if status_only:
-        result["statusOnly"] = True
-        return result
     result["tags"] = [tag for tag in git_out(["tag", "--list", "--sort=-creatordate"], repo).splitlines() if tag][:20]
 
     local = _branch_records(repo, "heads")
@@ -172,14 +169,10 @@ def inspect_root(root: Path, fetch: bool = False, status_only: bool = False) -> 
     return result
 
 
-def inspect_roots(
-    roots: list[dict[str, str]],
-    fetch: bool = False,
-    status_only: bool = False,
-) -> dict[str, Any]:
+def inspect_roots(roots: list[dict[str, str]], fetch: bool = False) -> dict[str, Any]:
     entries = []
     for entry in roots:
-        info = inspect_root(Path(entry["path"]), fetch=fetch, status_only=status_only)
+        info = inspect_root(Path(entry["path"]), fetch=fetch)
         info["configuredName"] = entry["name"]
         entries.append(info)
     return {
