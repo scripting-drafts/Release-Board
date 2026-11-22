@@ -15,6 +15,7 @@ const state = {
   compareError: "",
   pipelineData: null,
   pipelineLoading: false,
+  stoppedPipelines: new Set(),
   repairPreviewing: false,
   repairPrompted: new Set(),
   gitRefreshing: false,
@@ -1055,7 +1056,7 @@ function renderTasks() {
   const panelHead = h("div", "card-head");
   const panelTitle = h("div");
   panelTitle.append(h("h3", "", "Release pipeline"));
-  panelTitle.append(h("div", "card-sub", "Start, pause, stop, resume, repair a stale tag, or resolve a blocked step."));
+  panelTitle.append(h("div", "card-sub", "Start/stop and pause/resume the pipeline, repair a stale tag, or resolve a blocked step."));
   panelHead.append(panelTitle, pill(pipelineStatus, statusKind(pipelineStatus)));
   panel.append(panelHead);
   panel.append(
@@ -1091,49 +1092,70 @@ function renderTasks() {
     panel.append(errors);
   }
   const actions = h("div", "toolbar card-actions");
-  const canResume = paused || ["stopped", "blocked", "failed"].includes(pipeline.status);
-  const start = button("Start", "primary", async () => {
-    if (taskActive) return;
-    await runTask("pipeline");
-    loadPipelineStatus();
-  });
-  const pause = button("Pause", "ghost", async () => {
-    if (!taskActive || paused) return;
-    const result = await api.pauseTask(selectedTask.id);
-    if (!result.ok) {
-      notice(result.error || "could not pause task", true);
-      return;
-    }
-    selectedTask.paused = true;
-    notice("Pipeline paused.");
-    renderTasks();
-  });
-  const stop = button("Stop", "danger", async () => {
-    if (!taskActive) return;
-    const result = await api.cancelTask(selectedTask.id);
-    if (!result.ok) {
-      notice(result.error || "could not stop task", true);
-      return;
-    }
-    selectedTask.paused = false;
-    notice("Stopping pipeline…");
-    loadPipelineStatus();
-  });
-  const resume = button("Resume", "ghost", async () => {
-    if (taskActive && paused) {
-      const result = await api.resumeTask(selectedTask.id);
-      if (!result.ok) {
-        notice(result.error || "could not resume task", true);
+  if (pipeline.status === "completed") state.stoppedPipelines.delete(state.taskRoot);
+  const stopped = state.stoppedPipelines.has(state.taskRoot);
+  const resumablePipeline = ["stopped", "blocked", "failed"].includes(pipeline.status);
+  const canPause = taskActive && !paused && !stopped;
+  const canResume = paused || (!taskActive && (stopped || resumablePipeline));
+  const startStop = button(
+    taskActive ? "Stop" : "Start",
+    taskActive ? "danger" : "primary",
+    async () => {
+      if (taskActive) {
+        const result = await api.cancelTask(selectedTask.id);
+        if (!result.ok) {
+          notice(result.error || "could not stop task", true);
+          return;
+        }
+        if (selectedTask.name === "pipeline" || selectedTask.name === "pipelineResume") {
+          state.stoppedPipelines.add(state.taskRoot);
+        }
+        selectedTask.paused = false;
+        notice("Stopping pipeline…");
+        renderTasks();
+        loadPipelineStatus();
         return;
       }
-      selectedTask.paused = false;
-      notice("Pipeline resumed.");
-      renderTasks();
-      return;
+      state.stoppedPipelines.delete(state.taskRoot);
+      await runTask("pipeline");
+      loadPipelineStatus();
     }
-    await runTask("pipelineResume");
-    loadPipelineStatus();
-  });
+  );
+  startStop.setAttribute("aria-pressed", taskActive ? "true" : "false");
+  const pauseResume = button(
+    canResume ? "Resume" : "Pause",
+    "ghost",
+    async () => {
+      if (taskActive && paused) {
+        const result = await api.resumeTask(selectedTask.id);
+        if (!result.ok) {
+          notice(result.error || "could not resume task", true);
+          return;
+        }
+        selectedTask.paused = false;
+        state.stoppedPipelines.delete(state.taskRoot);
+        notice("Pipeline resumed.");
+        renderTasks();
+        return;
+      }
+      if (!taskActive && canResume) {
+        state.stoppedPipelines.delete(state.taskRoot);
+        await runTask("pipelineResume");
+        loadPipelineStatus();
+        return;
+      }
+      if (!canPause) return;
+      const result = await api.pauseTask(selectedTask.id);
+      if (!result.ok) {
+        notice(result.error || "could not pause task", true);
+        return;
+      }
+      selectedTask.paused = true;
+      notice("Pipeline paused.");
+      renderTasks();
+    }
+  );
+  pauseResume.setAttribute("aria-pressed", canResume ? "true" : "false");
   const repair = button("Repair tag", "ghost", () => previewRepair({ root: state.taskRoot }));
   repair.title = "Preview and repair a stale release tag";
   const resolve = button("Resolve conflicts", "ghost", async () => {
@@ -1144,13 +1166,11 @@ function renderTasks() {
     }
     notice(result.conflicts?.length ? "Opened conflicted files in Zed." : "Opened the repository in Zed.");
   });
-  start.disabled = taskActive;
-  pause.disabled = !taskActive || paused;
-  stop.disabled = !taskActive;
-  resume.disabled = !canResume && !taskActive;
+  startStop.disabled = taskActive && stopped;
+  pauseResume.disabled = !canPause && !canResume;
   repair.disabled = taskActive || !["failed", "blocked"].includes(pipeline.status);
   resolve.disabled = !pipeline.conflicts?.length && pipeline.status !== "blocked";
-  actions.append(start, pause, stop, resume);
+  actions.append(startStop, pauseResume);
   if (!sourceBumped) actions.append(repair);
   actions.append(resolve);
   panel.append(actions);
