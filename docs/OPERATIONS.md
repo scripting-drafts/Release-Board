@@ -43,8 +43,14 @@ specific tag, `--fetch` to update refs first, and `--open` to launch the changed
 files in a new Zed window as a multi-diff. Only changed files are exported, so
 empty comparisons do not open. Uncommitted changes are reported but Local
 Sources remains `HEAD`. A missing release tag is informational: the view falls
-back to Local → Origin and still succeeds. Exported trees live under
-`~/.local/state/release-board/diffs`; `compare --clean` removes them.
+back to Local → Origin and still succeeds.
+
+Clicking any source card opens the three source trees in one Zed window. Each
+tree is a temporary Git repository whose files changed by the comparison are
+left dirty, so Zed's project panel shows `M`/`D` status badges next to them.
+Clicking a comparison opens its files; clicking a file opens that file's diff.
+Exported trees live under `~/.local/state/release-board/diffs`; `compare --clean`
+removes them.
 
 ## Command examples
 

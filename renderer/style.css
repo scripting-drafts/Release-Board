@@ -204,12 +204,6 @@ h3 {
   font-size: 12px;
 }
 
-.top-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 button.primary,
 button.ghost,
 button.danger,
@@ -306,6 +300,14 @@ button:disabled {
   padding: 16px;
   box-shadow: var(--shadow);
   min-width: 0;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.card.clickable:hover {
+  border-color: var(--line);
 }
 
 .stat {

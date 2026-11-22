@@ -210,6 +210,34 @@ function registerIpc() {
     return cli(["compare", "--json", "--open", "--root", root, "--origin", origin], 300000);
   });
 
+
+  ipcMain.handle("compare:openSources", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    return cli(["compare", "--json", "--open-sources", "--root", root], 300000);
+  });
+
+  ipcMain.handle("compare:openComparison", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    const index = Number(options.index);
+    if (!Number.isInteger(index) || index < 0) return { ok: false, error: "invalid comparison index" };
+    return cli(["compare", "--json", "--open-comparison", String(index), "--root", root], 180000);
+  });
+
+  ipcMain.handle("compare:openFile", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    const index = Number(options.index);
+    if (!Number.isInteger(index) || index < 0) return { ok: false, error: "invalid comparison index" };
+    const path = String(options.path || "");
+    if (!path) return { ok: false, error: "missing file path" };
+    return cli(
+      ["compare", "--json", "--open-file", path, "--open-comparison", String(index), "--root", root],
+      180000
+    );
+  });
+
   ipcMain.handle("pkg:get", async () => cli(["pkg", "--json"], 120000));
   ipcMain.handle("launchpad:get", async (_event, options = {}) => {
     const args = ["launchpad", "--json"];

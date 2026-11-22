@@ -251,7 +251,12 @@ def _empty_file(destination: Path) -> None:
     destination.write_bytes(b"")
 
 
-def export_changed_trees(data: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+def export_changed_trees(
+    data: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    comparison_index: int | None = None,
+    file_path: str = "",
+) -> dict[str, Any]:
     config = config or load_config()
     root = Path(data["root"])
     stamp = now_iso().replace(":", "").replace("+00:00", "Z")
@@ -259,14 +264,19 @@ def export_changed_trees(data: dict[str, Any], config: dict[str, Any] | None = N
     pairs: list[dict[str, Any]] = []
 
     for index, comparison in enumerate(data["comparisons"]):
-        if not comparison["files"]:
+        if comparison_index is not None and index != comparison_index:
+            continue
+        files = comparison["files"]
+        if file_path:
+            files = [item for item in files if item["path"] == file_path or item.get("oldPath") == file_path]
+        if not files:
             continue
         pair_root = base / f"{index + 1}-{_slug(comparison['label'])}"
         old_dir = ensure_dir(pair_root / "old")
         new_dir = ensure_dir(pair_root / "new")
         old_ref = comparison["from"]["sha"]
         new_ref = comparison["to"]["sha"]
-        for item in comparison["files"]:
+        for item in files:
             path = item["path"]
             old_path = item.get("oldPath") or path
             if item["status"] == "A":
@@ -282,7 +292,7 @@ def export_changed_trees(data: dict[str, Any], config: dict[str, Any] | None = N
                 "label": comparison["label"],
                 "old": str(old_dir),
                 "new": str(new_dir),
-                "files": comparison["fileCount"],
+                "files": len(files),
             }
         )
 
@@ -310,9 +320,14 @@ def export_changed_trees(data: dict[str, Any], config: dict[str, Any] | None = N
     }
 
 
-def open_in_zed(data: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+def open_in_zed(
+    data: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    comparison_index: int | None = None,
+    file_path: str = "",
+) -> dict[str, Any]:
     config = config or load_config()
-    exported = export_changed_trees(data, config)
+    exported = export_changed_trees(data, config, comparison_index, file_path)
     zed = which("zed")
     if not zed:
         raise CompareError("zed CLI not found")
@@ -321,7 +336,7 @@ def open_in_zed(data: dict[str, Any], config: dict[str, Any] | None = None) -> d
         return {
             "ok": True,
             "opened": False,
-            "message": "No source differences to open in Zed",
+            "message": "No matching source differences to open in Zed",
             "export": exported,
         }
     commands = []
@@ -344,6 +359,193 @@ def open_in_zed(data: dict[str, Any], config: dict[str, Any] | None = None) -> d
     }
 
 
+def _export_full_ref(root: Path, ref: str, destination: Path) -> None:
+    if destination.exists():
+        shutil.rmtree(destination)
+    ensure_dir(destination)
+    archive = destination.parent / f"{destination.name}.tar"
+    proc = git(["archive", "--format=tar", "-o", str(archive), ref], root, timeout=180)
+    if proc.returncode != 0:
+        raise CompareError(f"git archive failed for {ref}: {proc.stderr.strip()}")
+    proc = subprocess.run(
+        ["tar", "-xf", str(archive), "-C", str(destination)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    archive.unlink(missing_ok=True)
+    if proc.returncode != 0:
+        raise CompareError(f"tar extraction failed for {ref}: {proc.stderr.decode('utf-8', 'replace').strip()}")
+
+
+def _anomaly_paths(data: dict[str, Any]) -> list[str]:
+    paths: set[str] = set()
+    for comparison in data["comparisons"]:
+        for item in comparison["files"]:
+            paths.add(item["path"])
+            if item.get("oldPath"):
+                paths.add(item["oldPath"])
+    return sorted(
+        path
+        for path in paths
+        if path and not path.startswith("/") and ".." not in Path(path).parts
+    )
+
+
+def _make_anomaly_repo(source_dir: Path, anomaly_paths: list[str]) -> list[str]:
+    settings = source_dir / ".zed" / "settings.json"
+    ensure_dir(settings.parent)
+    write_json_atomic(
+        settings,
+        {
+            "project_panel": {
+                "git_status": True,
+                "git_status_indicator": True,
+                "hide_hidden": True,
+            }
+        },
+        0o644,
+    )
+    run_git = lambda args: subprocess.run(
+        ["git", *args],
+        cwd=source_dir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    run_git(["init", "-q", "-b", "main"])
+    run_git(["config", "user.name", "Release Board"])
+    run_git(["config", "user.email", "release-board@localhost"])
+
+    saved = source_dir.parent / f".saved-{_slug(source_dir.name)}"
+    if saved.exists():
+        shutil.rmtree(saved)
+    marked: list[str] = []
+    for relative in anomaly_paths:
+        path = source_dir / relative
+        if not path.is_file() or path.is_symlink():
+            continue
+        backup = saved / relative
+        ensure_dir(backup.parent)
+        shutil.copy2(path, backup)
+        path.write_bytes(b"__release_board_anomaly__\n")
+        marked.append(relative)
+
+    proc = run_git(["add", "-A"])
+    if proc.returncode != 0:
+        raise CompareError(f"git add failed in {source_dir}: {proc.stderr.strip()}")
+    proc = run_git(
+        [
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "user.name=Release Board",
+            "-c",
+            "user.email=release-board@localhost",
+            "commit",
+            "-qm",
+            "baseline",
+        ]
+    )
+    if proc.returncode != 0:
+        raise CompareError(f"git commit failed in {source_dir}: {proc.stderr.strip()}")
+
+    for relative in marked:
+        backup = saved / relative
+        destination = source_dir / relative
+        ensure_dir(destination.parent)
+        shutil.copy2(backup, destination)
+    if saved.exists():
+        shutil.rmtree(saved)
+
+    status = run_git(["status", "--porcelain"])
+    return [line[3:] for line in status.stdout.splitlines() if line.strip()]
+
+
+def export_source_trees(data: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_config()
+    root = Path(data["root"])
+    stamp = now_iso().replace(":", "").replace("+00:00", "Z")
+    base = ensure_dir(state_dir() / "diffs" / _slug(root.name) / stamp / "sources")
+    anomalies = _anomaly_paths(data)
+    sources: list[dict[str, Any]] = []
+
+    for key in ("local", "origin", "released"):
+        ref = data["refs"].get(key, {})
+        if not ref or ref.get("available") is False:
+            continue
+        label = ref.get("label") or key.title()
+        destination = base / _slug(label)
+        _export_full_ref(root, ref["ref"], destination)
+        changed = _make_anomaly_repo(destination, anomalies)
+        sources.append(
+            {
+                "key": key,
+                "label": label,
+                "ref": ref["ref"],
+                "sha": ref.get("sha", ""),
+                "path": str(destination),
+                "anomalies": changed,
+            }
+        )
+
+    manifest = {
+        "schema": 1,
+        "exportedAt": now_iso(),
+        "root": str(root),
+        "refs": data["refs"],
+        "sources": sources,
+    }
+    write_json_atomic(base / "manifest.json", manifest, 0o644)
+    return {
+        "directory": str(base),
+        "manifest": str(base / "manifest.json"),
+        "sources": sources,
+    }
+
+
+def open_source_trees(data: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_config()
+    exported = export_source_trees(data, config)
+    sources = exported["sources"]
+    zed = which("zed")
+    if not zed:
+        raise CompareError("zed CLI not found")
+    if not sources:
+        return {
+            "ok": True,
+            "opened": False,
+            "message": "No source trees available to open in Zed",
+            "export": exported,
+        }
+    commands = []
+    first = sources[0]
+    command = [zed, "-n", first["path"]]
+    process = subprocess.Popen(
+        command,
+        cwd=str(Path(first["path"]).parent),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    commands.append({"command": command, "pid": process.pid, "label": first["label"]})
+    time.sleep(0.8)
+    for source in sources[1:]:
+        command = [zed, "-a", source["path"]]
+        process = subprocess.Popen(
+            command,
+            cwd=str(Path(source["path"]).parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        commands.append({"command": command, "pid": process.pid, "label": source["label"]})
+        time.sleep(0.4)
+    return {
+        "ok": True,
+        "opened": True,
+        "commands": commands,
+        "export": exported,
+    }
+
+
 def clean_diffs(root: Path | None = None) -> dict[str, Any]:
     base = state_dir() / "diffs"
     target = base / _slug(root.name) if root else base
@@ -359,9 +561,16 @@ def compare_cli_payload(
     release_ref: str = "",
     fetch: bool = False,
     open_zed: bool = False,
+    open_sources: bool = False,
+    open_comparison: int | None = None,
+    open_file: str = "",
 ) -> dict[str, Any]:
     data = compare_root(root, config, origin_branch, release_ref, fetch)
-    if open_zed:
+    if open_sources:
+        data["zed"] = open_source_trees(data, config)
+    elif open_comparison is not None or open_file:
+        data["zed"] = open_in_zed(data, config, open_comparison, open_file)
+    elif open_zed:
         data["zed"] = open_in_zed(data, config)
     return data
 

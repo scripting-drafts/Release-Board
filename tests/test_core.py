@@ -11,7 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
-from release_board.compare import _parse_name_status, _tree, compare_root  # noqa: E402
+from release_board.compare import (  # noqa: E402
+    _anomaly_paths,
+    _make_anomaly_repo,
+    _parse_name_status,
+    _tree,
+    compare_root,
+)
 from release_board.launchpad import _source_entry, status_for  # noqa: E402
 from release_board.packaging import parse_control  # noqa: E402
 from release_board.release import (  # noqa: E402
@@ -238,6 +244,32 @@ class CompareTests(unittest.TestCase):
         tree = _tree(files)
         self.assertEqual([node["name"] for node in tree], ["docs", "src"])
         self.assertEqual(tree[1]["children"][0]["status"], "M")
+
+    def test_anomaly_paths(self) -> None:
+        data = {
+            "comparisons": [
+                {
+                    "files": [
+                        {"path": "src/a.py", "oldPath": ""},
+                        {"path": "src/b.py", "oldPath": "src/c.py"},
+                    ]
+                }
+            ]
+        }
+        self.assertEqual(_anomaly_paths(data), ["src/a.py", "src/b.py", "src/c.py"])
+
+    def test_anomaly_repo_marks_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "a.txt").write_text("actual\n", encoding="utf-8")
+            (source / "b.txt").write_text("clean\n", encoding="utf-8")
+            marked = _make_anomaly_repo(source, ["a.txt"])
+            self.assertEqual(marked, ["a.txt"])
+            self.assertTrue((source / ".zed" / "settings.json").is_file())
+            status = run(["git", "status", "--porcelain"], cwd=source).stdout
+            self.assertIn("a.txt", status)
+            self.assertNotIn("b.txt", status)
 
     def test_missing_release_is_informational(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

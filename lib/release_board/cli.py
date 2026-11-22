@@ -11,7 +11,6 @@ from typing import Any
 from . import __version__
 from .board import build_board, render_markdown, write_board
 from .compare import (
-    CompareError,
     clean_diffs,
     compare_cli_payload,
     render_tree_text,
@@ -239,6 +238,9 @@ def cmd_compare(args: argparse.Namespace) -> int:
         release_ref=args.release,
         fetch=args.fetch,
         open_zed=args.open,
+        open_sources=args.open_sources,
+        open_comparison=args.open_comparison,
+        open_file=args.open_file,
     )
     if args.json:
         _print(payload, True)
@@ -263,12 +265,12 @@ def cmd_compare(args: argparse.Namespace) -> int:
                     print(f"  {line}")
         for warning in payload.get("warnings", []):
             print(f"\nwarning: {warning}")
-        if args.open:
+        if args.open or args.open_sources or args.open_comparison is not None or args.open_file:
             zed = payload.get("zed", {})
             if zed.get("opened"):
-                print(f"\nopened Zed diff: {zed.get('export', {}).get('directory', '')}")
+                print(f"\nopened Zed: {zed.get('export', {}).get('directory', '')}")
             else:
-                print(f"\n{zed.get('message', 'no Zed diff opened')}")
+                print(f"\n{zed.get('message', 'no Zed window opened')}")
     return 0 if payload.get("ok") else 1
 
 
@@ -545,7 +547,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--origin", default="main", help="origin branch to compare (default: main)")
     p.add_argument("--release", default="", help="release tag (default: v<package version>)")
     p.add_argument("--fetch", action="store_true", help="fetch origin and tags first")
-    p.add_argument("--open", action="store_true", help="open the tree diff in Zed")
+    p.add_argument("--open", action="store_true", help="open changed files in Zed")
+    p.add_argument("--open-sources", action="store_true", help="open the three source trees in Zed")
+    p.add_argument("--open-comparison", type=int, default=None, help="open one comparison by index")
+    p.add_argument("--open-file", default="", help="open one changed file in Zed")
     p.add_argument("--clean", action="store_true", help="remove exported diff trees")
 
     p = add("check", cmd_check, "run release preflight")

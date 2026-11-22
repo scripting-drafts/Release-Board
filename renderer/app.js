@@ -152,6 +152,21 @@ function button(label, className, onClick) {
   return node;
 }
 
+function clickable(node, handler, title = "") {
+  node.classList.add("clickable");
+  node.tabIndex = 0;
+  node.setAttribute("role", "button");
+  if (title) node.title = title;
+  node.addEventListener("click", handler);
+  node.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handler(event);
+    }
+  });
+  return node;
+}
+
 function externalLink(label, url) {
   const node = h("span", "link", label);
   node.addEventListener("click", () => {
@@ -355,7 +370,7 @@ function countTreeFiles(nodes) {
   }, 0);
 }
 
-function renderFileTree(nodes, depth = 0) {
+function renderFileTree(nodes, depth = 0, onFile = null) {
   const box = h("div", "file-tree");
   for (const node of nodes || []) {
     if (node.type === "dir") {
@@ -364,7 +379,8 @@ function renderFileTree(nodes, depth = 0) {
       const summary = h("summary", "tree-dir-row");
       summary.append(h("span", "mono tree-name", `${node.name}/`));
       summary.append(h("span", "muted small", fileLabel(countTreeFiles(node.children))));
-      details.append(summary, renderFileTree(node.children, depth + 1));
+      summary.addEventListener("click", (event) => event.stopPropagation());
+      details.append(summary, renderFileTree(node.children, depth + 1, onFile));
       box.append(details);
     } else {
       const row = h("div", "tree-file");
@@ -374,13 +390,23 @@ function renderFileTree(nodes, depth = 0) {
       row.append(name);
       if (node.oldPath) row.append(h("span", "muted small", `← ${node.oldPath}`));
       row.append(h("span", "muted small tree-path", node.path));
+      if (onFile) {
+        clickable(
+          row,
+          (event) => {
+            event.stopPropagation();
+            onFile(node.path);
+          },
+          `Open ${node.path} diff in Zed`
+        );
+      }
       box.append(row);
     }
   }
   return box;
 }
 
-function compareRefCard(label, ref, extra) {
+function compareRefCard(label, ref, extra, onOpen = null) {
   const card = h("div", "card");
   const head = h("div", "card-head");
   const left = h("div");
@@ -391,18 +417,24 @@ function compareRefCard(label, ref, extra) {
     head.append(pill("unavailable", ""));
     card.append(head);
     card.append(h("div", "card-sub", ref?.warning || "No release tag for this repository."));
-    return card;
+  } else {
+    if (extra) head.append(extra);
+    else head.append(pill(ref.short, "info"));
+    card.append(head);
+    card.append(
+      kv([
+        ["Commit", ref.short],
+        ["Subject", ref.subject || "—"],
+        ["Date", ref.date || "—"],
+      ])
+    );
   }
-  if (extra) head.append(extra);
-  else head.append(pill(ref.short, "info"));
-  card.append(head);
-  card.append(
-    kv([
-      ["Commit", ref.short],
-      ["Subject", ref.subject || "—"],
-      ["Date", ref.date || "—"],
-    ])
-  );
+  if (onOpen) {
+    clickable(card, (event) => {
+      event.stopPropagation();
+      onOpen();
+    }, "Open the three source trees in Zed");
+  }
   return card;
 }
 
@@ -468,7 +500,7 @@ function renderCompare() {
     state.compareError = "";
     renderCompare();
   });
-  const open = button("Open in Zed", "primary", () => loadCompare(state.compareRoot, true));
+  const open = button("Open changed files", "primary", () => loadCompare(state.compareRoot, true));
   toolbar.append(recompute, open);
   node.append(toolbar);
 
@@ -492,13 +524,14 @@ function renderCompare() {
     node.append(noticeCard);
   }
 
+  const openSources = () => openCompareSources();
   const chain = h("div", "grid cards");
-  chain.append(compareRefCard("Local Sources", data.refs.local, data.dirty ? pill("dirty", "warn") : null));
-  chain.append(compareRefCard("Origin", data.refs.origin));
-  chain.append(compareRefCard("Released Sources", data.refs.released));
+  chain.append(compareRefCard("Local Sources", data.refs.local, data.dirty ? pill("dirty", "warn") : null, openSources));
+  chain.append(compareRefCard("Origin", data.refs.origin, null, openSources));
+  chain.append(compareRefCard("Released Sources", data.refs.released, null, openSources));
   node.append(chain);
 
-  for (const comparison of data.comparisons) {
+  data.comparisons.forEach((comparison, index) => {
     const card = h("div", "card");
     const head = h("div", "card-head");
     const left = h("div");
@@ -515,10 +548,41 @@ function renderCompare() {
     if (!comparison.files?.length) {
       card.append(h("div", "card-sub", "No differences."));
     } else {
-      card.append(renderFileTree(comparison.tree));
+      card.append(renderFileTree(comparison.tree, 0, (path) => openCompareFile(index, path)));
     }
+    clickable(card, () => openCompareComparison(index), `Open ${comparison.label} in Zed`);
     node.append(card);
+  });
+}
+
+async function openCompareSources() {
+  const result = await api.compareSources({ root: state.compareRoot });
+  if (!result.ok || !result.data) {
+    notice(result.error || "could not open source trees", true);
+    return;
   }
+  const zed = result.data.zed || {};
+  notice(zed.opened ? "Opened the three source trees in Zed." : zed.message || "No source trees to open.");
+}
+
+async function openCompareComparison(index) {
+  const result = await api.compareComparison({ root: state.compareRoot, index });
+  if (!result.ok || !result.data) {
+    notice(result.error || "could not open comparison", true);
+    return;
+  }
+  const zed = result.data.zed || {};
+  notice(zed.opened ? "Opened comparison in Zed." : zed.message || "No differences to open.");
+}
+
+async function openCompareFile(index, path) {
+  const result = await api.compareFile({ root: state.compareRoot, index, path });
+  if (!result.ok || !result.data) {
+    notice(result.error || "could not open file diff", true);
+    return;
+  }
+  const zed = result.data.zed || {};
+  notice(zed.opened ? `Opened ${path} in Zed.` : zed.message || "No file diff to open.");
 }
 
 async function loadCompare(root, openInZed) {
@@ -997,12 +1061,6 @@ async function main() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
-  document.getElementById("open-zed").addEventListener("click", async () => {
-    const result = await api.openZed();
-    if (!result.ok) notice(result.error || "could not open Zed", true);
-    else notice("Opened configured roots in Zed.");
-  });
-
   api.onTaskOutput((payload) => {
     if (payload.id !== state.taskId) return;
     appendConsole(payload.chunk, payload.stream);
