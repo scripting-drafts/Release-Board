@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
@@ -21,10 +22,14 @@ from release_board.compare import (  # noqa: E402
 )
 from release_board.launchpad import _source_entry, status_for  # noqa: E402
 from release_board.packaging import parse_control  # noqa: E402
+from release_board.pipeline import release_pipeline  # noqa: E402
 from release_board.release import (  # noqa: E402
+    _changelog_entry,
+    _next_base_version,
     _next_revision,
     _published_base,
     _published_matches,
+    _release_records,
     _series_list,
 )
 from release_board.trace import append_event, read_ledger  # noqa: E402
@@ -65,6 +70,80 @@ class VersionTests(unittest.TestCase):
         }
         self.assertEqual(_series_list(profile), ["jammy", "noble", "resolute"])
         self.assertEqual(_series_list(profile, ["stonking"]), ["stonking"])
+
+
+class RepairTests(unittest.TestCase):
+    def test_next_base_version(self) -> None:
+        self.assertEqual(_next_base_version("0.5.10"), "0.5.11")
+        self.assertEqual(_next_base_version("1.4.3"), "1.4.4")
+        with self.assertRaises(ValueError):
+            _next_base_version("main")
+
+    def test_changelog_entry_lists_commits(self) -> None:
+        package = {
+            "source": "demo",
+            "distribution": "noble",
+            "urgency": "medium",
+            "maintainer": "Test <test@example.invalid>",
+        }
+        entry = _changelog_entry(package, "1.2.4", ["Fix one", "Fix two"])
+        self.assertTrue(entry.startswith("demo (1.2.4) noble; urgency=medium\n"))
+        self.assertIn("    - Fix one", entry)
+        self.assertIn("    - Fix two", entry)
+        self.assertIn(" -- Test <test@example.invalid>  ", entry)
+
+    def test_release_records_filter_package_base_and_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "ledger.jsonl"
+            ledger.write_text(
+                "\n".join(
+                    [
+                        json.dumps({"package": "demo", "event": "built", "baseVersion": "1.0.0"}),
+                        json.dumps({"package": "other", "event": "built", "baseVersion": "1.0.0"}),
+                        json.dumps({"package": "demo", "event": "uploaded", "baseVersion": "1.0.1"}),
+                        json.dumps({
+                            "package": "demo",
+                            "event": "published",
+                            "provenance": {"baseVersion": "1.0.0"},
+                        }),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            records = _release_records({"ledgerPath": str(ledger)}, "demo", "1.0.0")
+            self.assertEqual([item["event"] for item in records], ["built", "published"])
+
+
+class PipelineTests(unittest.TestCase):
+    def test_preflight_failure_records_error_in_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            (root / "debian").mkdir(parents=True)
+            (root / "debian" / "changelog").write_text(
+                """demo (1.0.0) jammy; urgency=medium
+
+  * Initial release.
+
+ -- Test <test@example.invalid>  Sun, 22 Nov 2026 12:00:00 +0100
+""",
+                encoding="utf-8",
+            )
+            config = {"roots": [], "profiles": {}, "ledgerPath": str(Path(tmp) / "ledger.jsonl")}
+            blocker = "release tag v1.0.0 does not point at HEAD"
+            with patch.dict(os.environ, {"XDG_STATE_HOME": tmp}):
+                with patch(
+                    "release_board.pipeline.check_release",
+                    return_value={"ok": False, "error": blocker},
+                ):
+                    result = release_pipeline(root, config, confirm=True)
+            self.assertFalse(result["ok"])
+            self.assertIn(blocker, result["error"])
+            self.assertEqual(result["state"]["status"], "failed")
+            self.assertIn(blocker, result["state"]["error"])
+            state_file = Path(tmp) / "release-board" / "pipelines" / "repo.json"
+            self.assertTrue(state_file.is_file())
+            self.assertIn(blocker, state_file.read_text(encoding="utf-8"))
 
 
 class PackagingTests(unittest.TestCase):

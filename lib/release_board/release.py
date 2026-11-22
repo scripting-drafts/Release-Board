@@ -7,6 +7,8 @@ import re
 import shutil
 import tempfile
 import time
+from datetime import datetime
+from email.utils import format_datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,7 @@ from .util import (
     split_version,
     state_dir,
     write_json_atomic,
+    write_text_atomic,
 )
 
 
@@ -188,7 +191,7 @@ def check_release(
             blockers.append(f"{series}: Launchpad build failed for {status.get('latestVersion')}")
         launchpad_rows.append(status)
 
-    return {
+    payload = {
         "ok": not blockers,
         "root": str(root),
         "package": package,
@@ -197,6 +200,403 @@ def check_release(
         "blockers": blockers,
         "notes": notes,
         "checkedAt": now_iso(),
+    }
+    if blockers:
+        payload["error"] = "; ".join(blockers)
+    return payload
+
+
+def _next_base_version(base: str) -> str:
+    match = re.match(r"^(.*?)(\d+)$", base)
+    if not match:
+        raise ValueError(f"cannot bump base version {base!r}")
+    return f"{match.group(1)}{int(match.group(2)) + 1}"
+
+
+def _release_records(config: dict[str, Any], source: str, base: str) -> list[dict[str, Any]]:
+    records = []
+    for event in read_ledger(config):
+        if event.get("package") != source:
+            continue
+        if event.get("event") not in {"built", "uploaded", "published"}:
+            continue
+        provenance = event.get("provenance")
+        event_base = event.get("baseVersion") or (
+            provenance.get("baseVersion") if isinstance(provenance, dict) else ""
+        )
+        if event_base == base:
+            records.append(event)
+    return records
+
+
+def _published_rows(
+    config: dict[str, Any],
+    package: dict[str, Any],
+    profile: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str]:
+    try:
+        data = observe(config=config)
+    except Exception as exc:
+        return [], str(exc)
+    rows = []
+    for series in _series_list(profile):
+        status = status_for(
+            data,
+            str(profile.get("ppa")),
+            str(package.get("source", "")),
+            series,
+            "",
+        )
+        published = status.get("publishedVersion", "")
+        rows.append(
+            {
+                "series": series,
+                "publishedVersion": published,
+                "publishedBase": _published_base(
+                    published, series, bool(profile.get("jammyNative"))
+                ),
+            }
+        )
+    return rows, ""
+
+
+def _changelog_entry(
+    package: dict[str, Any],
+    new_base: str,
+    subjects: list[str],
+) -> str:
+    source = package.get("source", "")
+    distribution = package.get("distribution") or "jammy"
+    urgency = package.get("urgency") or "medium"
+    maintainer = package.get("maintainer", "")
+    if not source or not maintainer:
+        raise ValueError("debian/changelog is missing Source or Maintainer")
+    stamp = format_datetime(datetime.now().astimezone())
+    lines = [f"{source} ({new_base}) {distribution}; urgency={urgency}", ""]
+    if subjects:
+        lines.append("  * Changes since the previous release:")
+        for subject in subjects[:20]:
+            lines.append(f"    - {subject}")
+        if len(subjects) > 20:
+            lines.append(f"    - ... and {len(subjects) - 20} more")
+    else:
+        lines.append(f"  * Release {new_base}.")
+    lines.extend(["", f" -- {maintainer}  {stamp}"])
+    return "\n".join(lines).rstrip() + "\n\n"
+
+
+def _bump_release(
+    root: Path,
+    config: dict[str, Any],
+    package: dict[str, Any],
+    stale_tag: str,
+    commit: bool,
+    dry_run: bool,
+    published_bases: list[str] | None = None,
+) -> dict[str, Any]:
+    base = package.get("baseVersion", "")
+    if not base:
+        return {"ok": False, "error": "debian/changelog has no base version"}
+    try:
+        new_base = _next_base_version(base)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    for published in published_bases or []:
+        while True:
+            comparison = _dpkg_compare(new_base, published)
+            if comparison is None or comparison > 0:
+                break
+            try:
+                new_base = _next_base_version(new_base)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+
+    remote = root_entry(root, config).get("remote", "origin")
+    remote_exists = (
+        run(["git", "remote", "get-url", remote], cwd=root, timeout=10).returncode == 0
+    )
+    while True:
+        tag = f"v{new_base}"
+        existing = git_out(["rev-parse", "-q", "--verify", f"refs/tags/{tag}"], root)
+        if not existing:
+            if not remote_exists:
+                break
+            remote_tag = run(
+                ["git", "ls-remote", "--tags", remote, f"refs/tags/{tag}"],
+                cwd=root,
+                timeout=30,
+            )
+            if remote_tag.returncode != 0:
+                return {
+                    "ok": False,
+                    "error": f"cannot inspect {remote} tags",
+                    "output": (remote_tag.stderr or remote_tag.stdout).strip(),
+                }
+            if not remote_tag.stdout.strip():
+                break
+        try:
+            new_base = _next_base_version(new_base)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    profile = profile_for(package.get("source", root.name), config)
+    version_files = [str(item) for item in profile.get("versionFiles", [])]
+    if not version_files:
+        return {"ok": False, "error": "no version files configured for the package"}
+
+    bump_dates = profile.get("bumpDates", {})
+    today = datetime.now().astimezone().date().isoformat()
+    changes: list[str] = []
+    updates: dict[str, str] = {}
+    for name in version_files:
+        if name == "debian/changelog":
+            continue
+        path = root / name
+        if not path.is_file():
+            return {"ok": False, "error": f"version file not found: {name}"}
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if path.suffix == ".json":
+            updated = text.replace(f'"{base}"', f'"{new_base}"')
+        else:
+            updated = text.replace(base, new_base)
+        if updated == text:
+            return {"ok": False, "error": f"version file does not mention {base}: {name}"}
+        date_key = bump_dates.get(name) if isinstance(bump_dates, dict) else ""
+        if date_key:
+            updated = re.sub(
+                rf'("{re.escape(str(date_key))}"\s*:\s*")[^"]+(")',
+                rf"\g<1>{today}\g<2>",
+                updated,
+            )
+        updates[name] = updated
+        changes.append(name)
+
+    subjects = [
+        line.strip()
+        for line in git_out(
+            ["log", "--format=%s", "--reverse", f"{stale_tag}..HEAD"], root
+        ).splitlines()
+        if line.strip()
+    ]
+    unique_subjects = list(dict.fromkeys(subjects))
+    try:
+        entry = _changelog_entry(package, new_base, unique_subjects)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    changelog = root / "debian" / "changelog"
+    if not changelog.is_file():
+        return {"ok": False, "error": "debian/changelog is missing"}
+    updates["debian/changelog"] = entry + changelog.read_text(encoding="utf-8")
+    changes.append("debian/changelog")
+
+    if not dry_run:
+        for name, text in updates.items():
+            write_text_atomic(root / name, text)
+        if commit:
+            add = run(["git", "add", "--", *changes], cwd=root, timeout=60)
+            if add.returncode != 0:
+                return {
+                    "ok": False,
+                    "error": "cannot stage version bump",
+                    "output": (add.stderr or add.stdout).strip(),
+                }
+            make_commit = run(
+                ["git", "commit", "-s", "-m", f"Release {new_base}"],
+                cwd=root,
+                timeout=120,
+            )
+            if make_commit.returncode != 0:
+                return {
+                    "ok": False,
+                    "error": "cannot commit version bump",
+                    "output": (make_commit.stderr or make_commit.stdout).strip(),
+                }
+
+    return {
+        "ok": True,
+        "action": "bumped",
+        "from": base,
+        "to": new_base,
+        "tag": f"v{new_base}",
+        "changed": changes,
+        "committed": bool(commit and not dry_run),
+        "dryRun": dry_run,
+        "changelog": entry,
+    }
+
+
+def repair_release(
+    root: Path,
+    config: dict[str, Any] | None = None,
+    confirm: bool = False,
+    bump: bool = False,
+    commit: bool = False,
+    move_tag: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Correct a stale release tag without rewriting a consumed release."""
+    config = config or load_config()
+    root = root.expanduser().resolve()
+    package = inspect_package(root, config)
+    if package.get("errors"):
+        return {
+            "ok": False,
+            "error": "packaging preflight failed",
+            "details": package["errors"],
+        }
+    tag = package.get("tag", {})
+    tag_name = tag.get("name") or f"v{package.get('baseVersion', '')}"
+    if not tag.get("present"):
+        return {
+            "ok": True,
+            "action": "none",
+            "message": f"{tag_name} is missing; the release build will create it",
+        }
+    if tag.get("pointsAtHead"):
+        return {
+            "ok": True,
+            "action": "none",
+            "message": f"{tag_name} already points at HEAD",
+        }
+
+    git = inspect_root(root)
+    if not git.get("isGit"):
+        return {"ok": False, "error": "not a Git repository"}
+    if git.get("dirty"):
+        return {
+            "ok": False,
+            "error": f"working tree is dirty ({git['dirty']} file(s)); commit before repairing",
+        }
+    if git.get("branch") != "main":
+        return {
+            "ok": False,
+            "error": f"repair from main, not {git.get('branch') or 'detached HEAD'}",
+        }
+
+    base = package.get("baseVersion", "")
+    profile = profile_for(package.get("source", root.name), config)
+    records = _release_records(config, str(package.get("source", "")), base)
+    published, launchpad_error = _published_rows(config, package, profile)
+    consumed = bool(records)
+    for row in published:
+        comparison = _dpkg_compare(row.get("publishedBase", ""), base)
+        if comparison is not None and comparison >= 0:
+            consumed = True
+            break
+
+    if consumed:
+        if not bump:
+            reasons = []
+            if records:
+                events = sorted({str(item.get("event", "")) for item in records})
+                reasons.append("ledger records: " + ", ".join(events))
+            published_bases = sorted(
+                {row["publishedBase"] for row in published if row.get("publishedBase")}
+            )
+            if published_bases:
+                reasons.append("published: " + ", ".join(published_bases))
+            return {
+                "ok": False,
+                "action": "bump-required",
+                "error": (
+                    f"{tag_name} is stale and release {base} is already consumed; "
+                    "bump the base version instead of moving the tag"
+                ),
+                "reasons": reasons,
+                "records": len(records),
+                "published": published,
+                "launchpadError": launchpad_error,
+            }
+        published_bases = [
+            row["publishedBase"] for row in published if row.get("publishedBase")
+        ]
+        return _bump_release(
+            root,
+            config,
+            package,
+            tag_name,
+            commit,
+            dry_run,
+            published_bases=published_bases,
+        )
+
+    remote = root_entry(root, config).get("remote", "origin")
+    remote_exists = (
+        run(["git", "remote", "get-url", remote], cwd=root, timeout=10).returncode == 0
+    )
+    pushed = False
+    if remote_exists:
+        remote_tag = run(
+            ["git", "ls-remote", "--tags", remote, f"refs/tags/{tag_name}"],
+            cwd=root,
+            timeout=30,
+        )
+        if remote_tag.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"cannot inspect {remote} tags",
+                "output": (remote_tag.stderr or remote_tag.stdout).strip(),
+            }
+        pushed = bool(remote_tag.stdout.strip())
+    if pushed and not move_tag:
+        return {
+            "ok": False,
+            "action": "move-required",
+            "error": (
+                f"{tag_name} is stale and exists on {remote}; "
+                "rerun with --move-tag to replace the unused tag"
+            ),
+            "remote": remote,
+        }
+    if pushed and not confirm:
+        return {
+            "ok": False,
+            "action": "confirm-required",
+            "error": f"replacing {tag_name} on {remote} requires --confirm",
+        }
+    if dry_run:
+        return {
+            "ok": True,
+            "action": "replaced",
+            "tag": tag_name,
+            "dryRun": True,
+            "remote": pushed,
+        }
+
+    if pushed:
+        delete_remote = run(
+            ["git", "push", remote, f":refs/tags/{tag_name}"],
+            cwd=root,
+            timeout=120,
+        )
+        if delete_remote.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"cannot delete {tag_name} from {remote}",
+                "output": (delete_remote.stderr or delete_remote.stdout).strip(),
+            }
+    delete_local = run(["git", "tag", "-d", tag_name], cwd=root, timeout=30)
+    if delete_local.returncode != 0:
+        return {
+            "ok": False,
+            "error": f"cannot delete local tag {tag_name}",
+            "output": (delete_local.stderr or delete_local.stdout).strip(),
+        }
+    created = ensure_tag(root, base, config, message=f"Release {tag_name}")
+    if not created.get("ok"):
+        return {
+            "ok": False,
+            "error": f"cannot recreate {tag_name}",
+            "tag": created,
+        }
+    return {
+        "ok": True,
+        "action": "replaced",
+        "tag": tag_name,
+        "remote": pushed,
+        "previous": tag.get("commit", ""),
+        "created": created.get("tag", ""),
     }
 
 

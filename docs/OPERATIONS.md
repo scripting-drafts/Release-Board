@@ -149,3 +149,24 @@ authoritative provenance; `.slsa.json` is the readable statement. Upload and
   file.
 - The ledger is append-only. To investigate, read it with `trace --json`; do
   not edit historical lines.
+
+### Stale release tag
+
+`repair` corrects a tag that points behind `HEAD` without rewriting a consumed
+release:
+
+```bash
+release-board repair --root ~/QA-Dashboard --dry-run --bump
+release-board repair --root ~/QA-Dashboard --bump --commit --confirm
+```
+
+- If the base version has no build, upload or publish record and is not on
+  Launchpad, `--move-tag` deletes the unused local and remote tag and recreates
+  the signed tag at `HEAD`.
+- If the release was already consumed, `--bump` increments the trailing version
+  component, updates the package version files, prepends a changelog entry from
+  the commits since the stale tag, and commits the result.
+- A consumed tag is never moved. `pipeline --repair --confirm` runs the same
+  repair before preflight.
+- In the app, **Repair tag** in the pipeline panel previews the decision and
+  asks for confirmation before applying it.

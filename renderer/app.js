@@ -20,6 +20,7 @@ const state = {
   timer: null,
   gitTimer: null,
   pipelineTimer: null,
+  compareTimer: null,
 };
 
 const titles = {
@@ -116,7 +117,8 @@ function setView(view, fromUser = false) {
   document.getElementById("view-title").textContent = title;
   document.getElementById("view-subtitle").textContent = subtitle;
   renderView(view);
-  if (view === "tasks") loadPipelineStatus(false);
+  if (view === "tasks") loadPipelineStatus();
+  if (view === "compare" && state.compareRoot) loadCompare(state.compareRoot, true);
 }
 
 function renderSidebar() {
@@ -590,24 +592,52 @@ async function openCompareFile(index, path) {
   notice(zed.opened ? `Opened ${path} in Zed.` : zed.message || "No file diff to open.");
 }
 
-async function loadCompare(root) {
+function compareSignature(data) {
+  if (!data) return "";
+  return JSON.stringify({
+    refs: Object.fromEntries(
+      Object.entries(data.refs || {}).map(([key, ref]) => [key, [ref?.ref, ref?.sha, ref?.available]])
+    ),
+    comparisons: (data.comparisons || []).map((item) => [
+      item.label,
+      item.from?.sha,
+      item.to?.sha,
+      item.fileCount,
+      item.ahead,
+      item.behind,
+      (item.files || []).map((file) => [file.path, file.status]),
+    ]),
+  });
+}
+
+async function loadCompare(root, silent = false) {
   if (!root || state.compareLoading) return;
   const origin = state.compareOrigin || "main";
-  state.compareLoading = true;
-  state.compareError = "";
-  renderCompare();
+  let shouldRender = !silent;
+  if (!silent) {
+    state.compareLoading = true;
+    state.compareError = "";
+    renderCompare();
+  }
   try {
     const result = await api.compare({ root, origin });
     if (state.compareRoot !== root) return;
     if (!result.ok || !result.data) {
+      if (silent) {
+        notice(result.error || "comparison refresh failed", true);
+        return;
+      }
       state.compareError = result.error || "comparison failed";
       state.compareData = null;
+      shouldRender = true;
       return;
     }
+    const before = compareSignature(state.compareData);
     state.compareData = result.data;
+    if (silent && before !== compareSignature(state.compareData)) shouldRender = true;
   } finally {
-    state.compareLoading = false;
-    renderCompare();
+    if (!silent) state.compareLoading = false;
+    if (shouldRender) renderCompare();
   }
 }
 
@@ -822,6 +852,31 @@ function appendConsole(text, stream, root = state.taskRoot) {
   consoleNode.scrollTop = consoleNode.scrollHeight;
 }
 
+function repairPrompt(data) {
+  if (data.action === "bumped") {
+    const changed = Array.isArray(data.changed) ? data.changed : [];
+    const lines = [
+      `Release ${data.from} is already built or published.`,
+      `Repair will bump to ${data.to}, update ${changed.length} file(s), and commit.`,
+      "",
+    ];
+    if (changed.length) lines.push(`Changed: ${changed.join(", ")}`, "");
+    lines.push("Continue?");
+    return lines.join("\n");
+  }
+  if (data.action === "replaced") {
+    return [
+      `${data.tag} does not point at HEAD and has no build, upload or publish record.`,
+      data.remote
+        ? "Repair will delete it locally and on the remote, then recreate the signed tag at HEAD."
+        : "Repair will replace the local tag with a signed tag at HEAD.",
+      "",
+      "Continue?",
+    ].join("\n");
+  }
+  return `Repair action: ${data.action || "unknown"}. Continue?`;
+}
+
 function renderTasks() {
   const node = document.getElementById("view-tasks");
   clear(node);
@@ -843,7 +898,7 @@ function renderTasks() {
     state.taskRoot = select.value;
     state.pipelineData = null;
     renderTasks();
-    loadPipelineStatus(false);
+    loadPipelineStatus();
   });
   label.append(select);
   toolbar.append(label);
@@ -861,7 +916,7 @@ function renderTasks() {
           state.taskRoot = rootPath;
           state.pipelineData = null;
           renderTasks();
-          loadPipelineStatus(false);
+          loadPipelineStatus();
         }
       );
       activeRow.append(projectButton);
@@ -882,7 +937,7 @@ function renderTasks() {
   const panelHead = h("div", "card-head");
   const panelTitle = h("div");
   panelTitle.append(h("h3", "", "Release pipeline"));
-  panelTitle.append(h("div", "card-sub", "Start, pause, stop, resume, or resolve a blocked step."));
+  panelTitle.append(h("div", "card-sub", "Start, pause, stop, resume, repair a stale tag, or resolve a blocked step."));
   panelHead.append(panelTitle, pill(pipelineStatus, statusKind(pipelineStatus)));
   panel.append(panelHead);
   panel.append(
@@ -897,6 +952,17 @@ function renderTasks() {
     conflicts.append(h("div", "card-section-title", "Conflicts"));
     for (const file of pipeline.conflicts) conflicts.append(h("div", "issue bad", file));
     panel.append(conflicts);
+  }
+  const blockers = new Set();
+  for (const [name, step] of Object.entries(pipeline.steps || {})) {
+    if (step && step.ok === false && step.error) blockers.add(`${name}: ${step.error}`);
+  }
+  if (!blockers.size && pipeline.error) blockers.add(pipeline.error);
+  if (blockers.size) {
+    const errors = h("div", "card-section");
+    errors.append(h("div", "card-section-title", "Blockers"));
+    for (const message of blockers) errors.append(h("div", "issue bad", message));
+    panel.append(errors);
   }
   const actions = h("div", "toolbar card-actions");
   const canResume = paused || ["stopped", "blocked", "failed"].includes(pipeline.status);
@@ -942,6 +1008,26 @@ function renderTasks() {
     await runTask("pipelineResume");
     loadPipelineStatus();
   });
+  const repair = button("Repair tag", "ghost", async () => {
+    if (taskActive) return;
+    const preview = await api.repairPreview({ root: state.taskRoot });
+    const data = preview?.data || {};
+    if (!preview?.ok || data.ok === false) {
+      const reasons = Array.isArray(data.reasons) && data.reasons.length
+        ? ` (${data.reasons.join("; ")})`
+        : "";
+      notice(`${data.error || preview?.error || "repair preview failed"}${reasons}`, true);
+      return;
+    }
+    if (data.action === "none") {
+      notice(data.message || "Release tag is already current.");
+      return;
+    }
+    if (!window.confirm(repairPrompt(data))) return;
+    await runTask("repair");
+    loadPipelineStatus();
+  });
+  repair.title = "Preview and repair a stale release tag";
   const resolve = button("Resolve conflicts", "ghost", async () => {
     const result = await api.resolveConflicts({ root: state.taskRoot });
     if (!result.ok) {
@@ -954,8 +1040,9 @@ function renderTasks() {
   pause.disabled = !taskActive || paused;
   stop.disabled = !taskActive;
   resume.disabled = !canResume && !taskActive;
+  repair.disabled = taskActive || !["failed", "blocked"].includes(pipeline.status);
   resolve.disabled = !pipeline.conflicts?.length && pipeline.status !== "blocked";
-  actions.append(start, pause, stop, resume, resolve);
+  actions.append(start, pause, stop, resume, repair, resolve);
   panel.append(actions);
   node.append(panel);
 
@@ -1253,10 +1340,14 @@ async function main() {
       root
     );
     const rootName = state.config?.roots?.find((item) => item.path === root)?.name || root;
-    notice(
-      payload.code === 0 ? `${rootName}: task finished.` : `${rootName}: task exited with ${payload.code}.`,
-      payload.code !== 0
-    );
+    if (payload.code === 0 && task.name === "repair") {
+      notice(`${rootName}: repair finished. Resume the pipeline to rerun preflight.`);
+    } else {
+      notice(
+        payload.code === 0 ? `${rootName}: task finished.` : `${rootName}: task exited with ${payload.code}.`,
+        payload.code !== 0
+      );
+    }
     refresh(false);
     loadPipelineStatus();
   });
@@ -1271,7 +1362,13 @@ async function main() {
   state.pipelineTimer = setInterval(() => {
     if (state.view === "tasks") loadPipelineStatus();
   }, 3000);
-  window.addEventListener("focus", refreshGitStatus);
+  state.compareTimer = setInterval(() => {
+    if (state.view === "compare" && state.compareRoot) loadCompare(state.compareRoot, true);
+  }, 10000);
+  window.addEventListener("focus", () => {
+    refreshGitStatus();
+    if (state.view === "compare" && state.compareRoot) loadCompare(state.compareRoot, true);
+  });
   // Do not overwrite a menu choice made while the initial data was loading.
   setView(state.userNavigated ? state.view : "overview");
 }

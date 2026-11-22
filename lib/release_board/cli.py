@@ -37,6 +37,7 @@ from .release import (
     check_release,
     ensure_tag,
     push_release,
+    repair_release,
     run_tests,
     upload,
     watch,
@@ -450,6 +451,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         confirm=True,
         check_publication=not args.no_publication,
         resume=args.resume,
+        repair=args.repair,
         log=lambda message: print(
             message,
             file=sys.stderr if args.json else sys.stdout,
@@ -457,6 +459,39 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         ),
     )
     _print(payload, args.json)
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_repair(args: argparse.Namespace) -> int:
+    config = load_config()
+    root = _resolve_root(args.root, config)
+    payload = repair_release(
+        root,
+        config,
+        confirm=args.confirm,
+        bump=args.bump,
+        commit=args.commit,
+        move_tag=args.move_tag,
+        dry_run=args.dry_run,
+    )
+    if args.json:
+        _print(payload, True)
+    else:
+        action = payload.get("action", "")
+        if payload.get("ok"):
+            print(f"repair: {action or 'ok'}")
+            if payload.get("message"):
+                print(payload["message"])
+            if payload.get("from") and payload.get("to"):
+                print(f"version: {payload['from']} -> {payload['to']}")
+            if payload.get("dryRun"):
+                print("dry run: no files were changed")
+        else:
+            print(f"repair: {action or 'blocked'}", file=sys.stderr)
+            if payload.get("error"):
+                print(payload["error"], file=sys.stderr)
+            for reason in payload.get("reasons", []):
+                print(f"  {reason}", file=sys.stderr)
     return 0 if payload.get("ok") else 1
 
 
@@ -664,6 +699,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-publication", action="store_true", help="skip the publication snapshot")
     p.add_argument("--resume", action="store_true", help="resume the last incomplete run")
     p.add_argument("--status", action="store_true", help="show the saved pipeline state")
+    p.add_argument(
+        "--repair",
+        action="store_true",
+        help="replace an unused stale tag, or bump the version when the release was consumed",
+    )
+    p.add_argument("--confirm", action="store_true")
+
+    p = add("repair", cmd_repair, "repair a stale release tag")
+    p.add_argument("--root", default="")
+    p.add_argument("--bump", action="store_true", help="bump to the next patch when the release was consumed")
+    p.add_argument("--move-tag", action="store_true", help="replace a stale tag on the remote when the release is unused")
+    p.add_argument("--commit", action="store_true", help="commit the version bump")
+    p.add_argument("--dry-run", action="store_true")
     p.add_argument("--confirm", action="store_true")
 
     p = add("watch", cmd_watch, "wait for Launchpad publication")

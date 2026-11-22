@@ -6,7 +6,15 @@
     "jammyNative": false,
     "binaryPackage": "qa-dashboard",
     "test": ["npm", "test"],
-    "versionFiles": ["package.json", "package-lock.json", "README.md"],
+    "versionFiles": [
+      "package.json",
+      "package-lock.json",
+      "README.md",
+      "legal/manifest.json",
+      "contracts/versions.json",
+      "sentinels/legal/manifest.json"
+    ],
+    "bumpDates": {"legal/manifest.json": "lastReviewed"},
     "sourceNeeds": ["node_modules/electron"],
     "docs": "docs/PPA.md"
   },
@@ -18,6 +26,7 @@
     "binaryPackage": "qa-sentinels",
     "test": ["python3", "-m", "unittest", "discover", "-s", "tests"],
     "versionFiles": ["legal/manifest.json"],
+    "bumpDates": {"legal/manifest.json": "lastReviewed"},
     "sourceNeeds": [],
     "docs": "docs/PPA.md"
   },

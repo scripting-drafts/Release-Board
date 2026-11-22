@@ -295,6 +295,7 @@ function registerIpc() {
       pipeline: ["pipeline", "--root", root, "--confirm"],
       pipelineResume: ["pipeline", "--root", root, "--resume", "--confirm"],
       pipelineStatus: ["pipeline", "--root", root, "--status", "--json"],
+      repair: ["repair", "--root", root, "--bump", "--move-tag", "--commit", "--confirm"],
       binary: ["build-binary", "--root", root],
       build: ["build-source", "--root", root],
       upload: ["upload-latest", "--root", root, "--confirm"],
@@ -368,6 +369,24 @@ function registerIpc() {
     const config = await getConfig();
     const root = validateRoot(options.root, config);
     return cli(["pipeline", "--status", "--root", root, "--json"], 30000);
+  });
+
+  ipcMain.handle("repair:preview", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    return cli(
+      [
+        "repair",
+        "--root",
+        root,
+        "--bump",
+        "--move-tag",
+        "--confirm",
+        "--dry-run",
+        "--json",
+      ],
+      120000
+    );
   });
 
   ipcMain.handle("pipeline:resolve", async (_event, options = {}) => {

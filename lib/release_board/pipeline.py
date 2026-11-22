@@ -12,6 +12,7 @@ from .release import (
     build_source,
     check_release,
     push_release,
+    repair_release,
     run_tests,
     upload_built,
     watch,
@@ -129,6 +130,7 @@ def release_pipeline(
     confirm: bool = False,
     check_publication: bool = True,
     resume: bool = False,
+    repair: bool = False,
     log: Any = None,
 ) -> dict[str, Any]:
     config = config or load_config()
@@ -136,6 +138,24 @@ def release_pipeline(
     emit = log or (lambda _message: None)
     if not confirm:
         return {"ok": False, "error": "pipeline requires explicit confirmation", "steps": {}}
+
+    if repair:
+        emit("== repair")
+        repaired = repair_release(
+            root,
+            config,
+            confirm=True,
+            bump=True,
+            commit=True,
+            move_tag=True,
+        )
+        if not repaired.get("ok"):
+            return {
+                "ok": False,
+                "error": f"repair failed: {repaired.get('error', '')}".strip(),
+                "repair": repaired,
+                "steps": {},
+            }
 
     from .util import parse_dpkg_changelog
 
@@ -159,6 +179,7 @@ def release_pipeline(
         "conflicts": [],
     }
     state["status"] = "running"
+    state["error"] = ""
     state["options"] = {
         "series": series_list or [],
         "revision": revision,
@@ -180,11 +201,13 @@ def release_pipeline(
             result = action()
         except PipelineBlocked as exc:
             state["status"] = "blocked"
+            state["error"] = str(exc)
             state["steps"][name] = {"ok": False, "error": str(exc), "at": now_iso()}
             save_state(root, config, state)
             raise
         except Exception as exc:
             state["status"] = "failed"
+            state["error"] = str(exc)
             state["steps"][name] = {"ok": False, "error": str(exc), "at": now_iso()}
             save_state(root, config, state)
             raise
@@ -197,18 +220,17 @@ def release_pipeline(
         }
         if not ok:
             state["status"] = "failed"
+            state["error"] = str(result.get("error") or f"{name} failed")
         save_state(root, config, state)
         if not ok:
-            raise PipelineBlocked(f"{name} failed")
+            raise PipelineBlocked(state["error"])
         return result
 
     try:
-        preflight = step(
+        step(
             "preflight",
             lambda: check_release(root, config, require_tag=False, require_sync=False),
         )
-        if not preflight.get("ok"):
-            raise PipelineBlocked("preflight failed")
         step("sync", lambda: sync_repository(root, config, state) | {"ok": True})
         step("tests", lambda: run_tests(root, config))
         _clear_stale_local_tag(root, config)
@@ -221,12 +243,18 @@ def release_pipeline(
         state["currentStep"] = ""
         state["completedAt"] = now_iso()
         state["conflicts"] = []
+        state["error"] = ""
         save_state(root, config, state)
         return {"ok": True, "state": state, "steps": state["steps"]}
     except PipelineBlocked as exc:
+        state["error"] = str(exc)
+        if state.get("status") not in {"failed", "blocked"}:
+            state["status"] = "blocked"
+        save_state(root, config, state)
         return {"ok": False, "error": str(exc), "state": state, "steps": state["steps"]}
     except KeyboardInterrupt:
         state["status"] = "stopped"
+        state["error"] = "pipeline stopped"
         save_state(root, config, state)
         return {"ok": False, "error": "pipeline stopped", "state": state, "steps": state["steps"]}
 

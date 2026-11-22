@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("releaseBoard", {
   pauseTask: (id) => ipcRenderer.invoke("task:pause", id),
   resumeTask: (id) => ipcRenderer.invoke("task:resume", id),
   pipelineStatus: (options = {}) => ipcRenderer.invoke("pipeline:status", options),
+  repairPreview: (options = {}) => ipcRenderer.invoke("repair:preview", options),
   resolveConflicts: (options = {}) => ipcRenderer.invoke("pipeline:resolve", options),
   onTaskOutput: (callback) => {
     const handler = (_event, payload) => callback(payload);
