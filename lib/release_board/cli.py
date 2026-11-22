@@ -29,6 +29,7 @@ from .config import (
 from .gitinfo import inspect_roots
 from .launchpad import observe, summary as launchpad_summary
 from .packaging import inspect_package, inspect_packages
+from .pipeline import pipeline_status, release_pipeline
 from .slsa import verify_attestation
 from .release import (
     build_binary,
@@ -36,7 +37,6 @@ from .release import (
     check_release,
     ensure_tag,
     push_release,
-    release_pipeline,
     run_tests,
     upload,
     watch,
@@ -429,10 +429,15 @@ def cmd_upload_latest(args: argparse.Namespace) -> int:
 def cmd_pipeline(args: argparse.Namespace) -> int:
     config = load_config()
     root = _resolve_root(args.root, config)
+    if args.status:
+        payload = pipeline_status(root, config)
+        _print(payload, args.json)
+        return 0
     if not args.confirm:
         package = inspect_package(root, config)
+        verb = "Resume" if args.resume else "Run"
         answer = input(
-            f"Run release pipeline for {package.get('source')} {package.get('version')}? [y/N] "
+            f"{verb} release pipeline for {package.get('source')} {package.get('version')}? [y/N] "
         ).strip().lower()
         if answer not in {"y", "yes"}:
             print("aborted")
@@ -444,6 +449,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         revision=args.revision,
         confirm=True,
         check_publication=not args.no_publication,
+        resume=args.resume,
         log=lambda message: print(
             message,
             file=sys.stderr if args.json else sys.stdout,
@@ -519,6 +525,10 @@ def _zed_tasks(cli: Path) -> list[dict[str, Any]]:
         {"label": "Release: build source (all series)", "command": f"{python} {cli} build-source --root {root}"},
         {"label": "Release: push main and tag", "command": f"{python} {cli} push-release --root {root}"},
         {"label": "Release: pipeline", "command": f"{python} {cli} pipeline --root {root}"},
+        {
+            "label": "Release: resume pipeline",
+            "command": f"{python} {cli} pipeline --root {root} --resume",
+        },
         {"label": "Release: upload latest", "command": f"{python} {cli} upload-latest --root {root}"},
         {"label": "Release: check publication", "command": f"{python} {cli} watch --root {root} --once"},
         {"label": "Release: open board app", "command": f"npm --prefix {cli.parents[1]} start"},
@@ -652,6 +662,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--series", action="append", default=[])
     p.add_argument("--revision", type=int, default=None)
     p.add_argument("--no-publication", action="store_true", help="skip the publication snapshot")
+    p.add_argument("--resume", action="store_true", help="resume the last incomplete run")
+    p.add_argument("--status", action="store_true", help="show the saved pipeline state")
     p.add_argument("--confirm", action="store_true")
 
     p = add("watch", cmd_watch, "wait for Launchpad publication")

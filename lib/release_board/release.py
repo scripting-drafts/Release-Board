@@ -771,57 +771,6 @@ def upload_built(
     return {"ok": all(item.get("ok") for item in results), "uploads": results}
 
 
-def release_pipeline(
-    root: Path,
-    config: dict[str, Any] | None = None,
-    series_list: list[str] | None = None,
-    revision: int | None = None,
-    confirm: bool = False,
-    check_publication: bool = True,
-    log: Any = None,
-) -> dict[str, Any]:
-    config = config or load_config()
-    root = root.expanduser().resolve()
-    emit = log or (lambda _message: None)
-    if not confirm:
-        return {"ok": False, "error": "pipeline requires explicit confirmation", "steps": {}}
-
-    emit("== preflight")
-    preflight = check_release(root, config, require_tag=False, require_sync=False)
-    if not preflight.get("ok"):
-        return {"ok": False, "error": "preflight failed", "steps": {"preflight": preflight}}
-
-    emit("== tests")
-    tests = run_tests(root, config)
-    if not tests.get("ok"):
-        return {"ok": False, "error": "tests failed", "steps": {"preflight": preflight, "tests": tests}}
-
-    emit("== build source (auto-tag)")
-    build = build_source(root, series_list, revision, config, tag=True)
-    if not build.get("ok"):
-        return {"ok": False, "error": "build failed", "steps": {"preflight": preflight, "tests": tests, "build": build}}
-
-    emit("== push main and tag")
-    pushed = push_release(root, config)
-    if not pushed.get("ok"):
-        return {
-            "ok": False,
-            "error": "push failed",
-            "steps": {"preflight": preflight, "tests": tests, "build": build, "push": pushed},
-        }
-
-    emit("== upload")
-    uploads = upload_built(root, config, confirm=True)
-    steps = {"preflight": preflight, "tests": tests, "build": build, "push": pushed, "uploads": uploads}
-    if not uploads.get("ok"):
-        return {"ok": False, "error": "upload failed", "steps": steps}
-
-    if check_publication:
-        emit("== publication snapshot")
-        steps["publication"] = watch(root, series_list, config, once=True)
-    return {"ok": True, "steps": steps}
-
-
 def watch(
     root: Path,
     series_list: list[str] | None = None,

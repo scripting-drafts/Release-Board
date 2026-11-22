@@ -64,14 +64,30 @@ release-board pipeline --root ~/QA-Sentinels --confirm
 Steps:
 
 1. Local preflight; ahead/behind is informational.
-2. Package tests.
-3. Source build; the signed tag is created automatically.
-4. Push `main` and the tag to the configured remote.
-5. Upload every built source package.
-6. Take one publication snapshot.
+2. Fetch and rebase `main` onto the configured remote when behind.
+3. Package tests.
+4. Source build; the signed tag is created automatically.
+5. Push `main` and the tag to the configured remote.
+6. Upload every built source package.
+7. Take one publication snapshot.
 
 Publication does not block the pipeline. To poll until publication, run
 `release-board watch` without `--once`.
+
+Pipeline state is saved under `~/.local/state/release-board/pipelines/`.
+Completed steps are skipped when resuming:
+
+```bash
+release-board pipeline --root ~/QA-Sentinels --status
+release-board pipeline --root ~/QA-Sentinels --resume --confirm
+```
+
+The app's **Stop task** button terminates the whole task process group. A
+pipeline stopped this way can be resumed.
+
+If the sync step finds remote commits, it rebases before building. A rebase
+conflict blocks the pipeline and records the conflicted paths. Resolve them,
+run `git rebase --continue`, then resume the pipeline.
 
 ## Repository and deployment settings
 

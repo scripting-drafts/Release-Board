@@ -843,6 +843,8 @@ function renderTasks() {
     ["build", "Build source", "Create the signed tag automatically and build source packages for every configured series."],
     ["push", "Push main + tag", "Push the release branch and signed tag to origin."],
     ["pipeline", "Run release pipeline", "Preflight, test, build, push, upload and take a publication snapshot."],
+    ["pipelineResume", "Resume pipeline", "Continue from the last incomplete or conflict-blocked step."],
+    ["pipelineStatus", "Pipeline status", "Show the saved pipeline state and current step."],
     ["upload", "Upload latest", "Upload built source changes files after confirmation."],
     ["watch", "Check publication", "Read the current Launchpad publication state once."],
   ];
@@ -859,7 +861,15 @@ function renderTasks() {
   const header = h("div", "section-title");
   header.append(h("h2", "", "Output"));
   const clearButton = button("Clear", "subtle", clearConsole);
-  header.append(clearButton);
+  const stopButton = button("Stop task", "danger", async () => {
+    if (!state.taskId) {
+      notice("No task is running.", true);
+      return;
+    }
+    const result = await api.cancelTask(state.taskId);
+    notice(result.ok ? "Stopping task…" : result.error || "could not stop task", !result.ok);
+  });
+  header.append(clearButton, stopButton);
   node.append(header);
   const consoleNode = h("div", "console");
   consoleNode.id = "task-console";
@@ -1091,7 +1101,12 @@ async function runTask(name) {
     pipeline: {
       title: "Run release pipeline",
       message: "Run preflight, tests, build, push, upload and a publication snapshot?",
-      detail: "The build creates the signed tag, then pushes main and the tag, uploads the source packages and reads Launchpad once.",
+      detail: "The build creates the signed tag, then pushes main and the tag, uploads the source packages and reads Launchpad once. Git conflicts block the pipeline until resolved.",
+    },
+    pipelineResume: {
+      title: "Resume release pipeline",
+      message: "Resume from the last incomplete or conflict-blocked step?",
+      detail: "Completed steps are skipped. If Git is mid-rebase, resolve conflicts and run git rebase --continue first.",
     },
     watch: {
       title: "Check publication",

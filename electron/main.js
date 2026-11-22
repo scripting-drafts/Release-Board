@@ -305,6 +305,8 @@ function registerIpc() {
       test: ["test", "--root", root],
       push: ["push-release", "--root", root],
       pipeline: ["pipeline", "--root", root, "--confirm"],
+      pipelineResume: ["pipeline", "--root", root, "--resume", "--confirm"],
+      pipelineStatus: ["pipeline", "--root", root, "--status", "--json"],
       binary: ["build-binary", "--root", root],
       build: ["build-source", "--root", root],
       upload: ["upload-latest", "--root", root, "--confirm"],
@@ -319,6 +321,7 @@ function registerIpc() {
       cwd: root,
       env: { ...process.env, NO_COLOR: "1" },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
     running.set(id, child);
     const send = (chunk, stream) => {
@@ -341,7 +344,12 @@ function registerIpc() {
   ipcMain.handle("task:cancel", async (_event, id) => {
     const child = running.get(String(id));
     if (!child) return { ok: false, error: "task not running" };
-    child.kill("SIGTERM");
+    try {
+      if (process.platform !== "win32") process.kill(-child.pid, "SIGTERM");
+      else child.kill("SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
     return { ok: true };
   });
 }
