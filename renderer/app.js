@@ -966,6 +966,30 @@ function renderView(view) {
   else if (view === "settings") renderSettings();
 }
 
+async function refreshGitStatus() {
+  if (state.gitRefreshing || !state.board) return;
+  state.gitRefreshing = true;
+  try {
+    const before = JSON.stringify(
+      (state.board.roots || []).map((root) => [root.clean, root.dirty, root.ahead, root.behind, root.head?.sha])
+    );
+    const result = await api.git({ fetch: false });
+    if (!result.ok || !result.data) return;
+    const byPath = new Map((result.data.roots || []).map((root) => [root.path, root]));
+    state.board.roots = (state.board.roots || []).map((root) => byPath.get(root.path) || root);
+    state.board.summary = state.board.summary || {};
+    state.board.summary.dirtyRoots = result.data.summary.dirty;
+    const after = JSON.stringify(
+      state.board.roots.map((root) => [root.clean, root.dirty, root.ahead, root.behind, root.head?.sha])
+    );
+    if (before !== after && (state.view === "overview" || state.view === "git")) {
+      renderView(state.view);
+    }
+  } finally {
+    state.gitRefreshing = false;
+  }
+}
+
 async function refresh(withLaunchpad = false, forceConfig = false) {
   const [boardResult, configResult] = await Promise.all([
     api.board({ refresh: withLaunchpad }),
@@ -1061,6 +1085,8 @@ async function main() {
   state.timer = setInterval(() => {
     if (!state.taskId) refresh(false);
   }, Math.max(15, Number(state.config?.refreshSeconds || 60)) * 1000);
+  state.gitTimer = setInterval(refreshGitStatus, 5000);
+  window.addEventListener("focus", refreshGitStatus);
   setView("overview");
 }
 
