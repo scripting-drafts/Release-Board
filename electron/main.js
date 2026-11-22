@@ -460,7 +460,10 @@ function registerIpc() {
     try {
       if (process.platform !== "win32") {
         if (paused.has(String(id))) process.kill(-child.pid, "SIGCONT");
-        process.kill(-child.pid, entry.name === "pipeline" ? "SIGINT" : "SIGTERM");
+        const signal = ["pipeline", "pipelineResume"].includes(entry.name)
+          ? "SIGINT"
+          : "SIGTERM";
+        process.kill(-child.pid, signal);
       } else {
         child.kill("SIGTERM");
       }

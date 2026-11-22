@@ -1094,9 +1094,12 @@ function renderTasks() {
   const actions = h("div", "toolbar card-actions");
   if (pipeline.status === "completed") state.stoppedPipelines.delete(state.taskRoot);
   const stopped = state.stoppedPipelines.has(state.taskRoot);
+  const pipelineTask = ["pipeline", "pipelineResume"].includes(selectedTask?.name);
+  const stopping = taskActive && stopped && pipelineTask;
   const resumablePipeline = ["stopped", "blocked", "failed"].includes(pipeline.status);
-  const canPause = taskActive && !paused && !stopped;
+  const canPause = taskActive && !paused && !stopping;
   const canResume = paused || (!taskActive && (stopped || resumablePipeline));
+  const pauseResumeLabel = canResume || stopping || !taskActive ? "Resume" : "Pause";
   const startStop = button(
     taskActive ? "Stop" : "Start",
     taskActive ? "danger" : "primary",
@@ -1123,7 +1126,7 @@ function renderTasks() {
   );
   startStop.setAttribute("aria-pressed", taskActive ? "true" : "false");
   const pauseResume = button(
-    canResume ? "Resume" : "Pause",
+    pauseResumeLabel,
     "ghost",
     async () => {
       if (taskActive && paused) {
@@ -1166,7 +1169,7 @@ function renderTasks() {
     }
     notice(result.conflicts?.length ? "Opened conflicted files in Zed." : "Opened the repository in Zed.");
   });
-  startStop.disabled = taskActive && stopped;
+  startStop.disabled = stopping;
   pauseResume.disabled = !canPause && !canResume;
   repair.disabled = taskActive || !["failed", "blocked"].includes(pipeline.status);
   resolve.disabled = !pipeline.conflicts?.length && pipeline.status !== "blocked";
