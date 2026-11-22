@@ -474,6 +474,17 @@ tr:last-child td {
   text-decoration: underline;
 }
 
+.about-version {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.about-version:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
 .kv {
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);

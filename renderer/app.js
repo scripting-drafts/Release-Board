@@ -193,7 +193,7 @@ function renderSidebar() {
   const footer = document.getElementById("app-about");
   if (!footer) return;
   const version = state.config?.version || "";
-  const link = h("a", "link small", version ? `About · ${version}` : "About");
+  const link = h("a", "about-version", version);
   link.href = "https://github.com/scripting-drafts/Release-Board";
   link.title = version ? `About Release Board ${version}` : "About Release Board";
   link.addEventListener("click", async (event) => {
