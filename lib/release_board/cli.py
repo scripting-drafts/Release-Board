@@ -287,7 +287,7 @@ def cmd_slsa(args: argparse.Namespace) -> int:
 def cmd_check(args: argparse.Namespace) -> int:
     config = load_config()
     root = _resolve_root(args.root, config)
-    payload = check_release(root, config)
+    payload = check_release(root, config, require_tag=args.require_tag)
     if args.json:
         _print(payload, True)
     else:
@@ -477,10 +477,9 @@ def _zed_tasks(cli: Path) -> list[dict[str, Any]]:
         {"label": "Release: packaging inspect", "command": f"{python} {cli} pkg --root {root}", "reveal": "no_focus"},
         {"label": "Release: launchpad", "command": f"{python} {cli} launchpad --refresh", "reveal": "no_focus"},
         {"label": "Release: trace verify", "command": f"{python} {cli} trace --verify", "reveal": "no_focus"},
-        {"label": "Release: sign tag", "command": f"{python} {cli} tag --root {root}"},
-        {"label": "Release: push main and tag", "command": f"{python} {cli} push-release --root {root}"},
         {"label": "Release: build local .deb", "command": f"{python} {cli} build-binary --root {root}"},
-        {"label": "Release: build source (all series)", "command": f"{python} {cli} build-source --root {root} --tag"},
+        {"label": "Release: build source (all series)", "command": f"{python} {cli} build-source --root {root}"},
+        {"label": "Release: push main and tag", "command": f"{python} {cli} push-release --root {root}"},
         {"label": "Release: upload latest", "command": f"{python} {cli} upload-latest --root {root}"},
         {"label": "Release: watch publication", "command": f"{python} {cli} watch --root {root}"},
         {"label": "Release: open board app", "command": f"npm --prefix {cli.parents[1]} start"},
@@ -509,7 +508,12 @@ def cmd_zed(args: argparse.Namespace) -> int:
             )
             return 1
     labels = {item.get("label") for item in tasks}
-    merged = [item for item in existing if item.get("label") not in labels] + tasks
+    merged = [
+        item
+        for item in existing
+        if item.get("label") not in labels
+        and not (str(item.get("label", "")).startswith("Release:") and item.get("label") not in labels)
+    ] + tasks
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     print(f"installed {len(tasks)} tasks in {path}")
@@ -570,6 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add("check", cmd_check, "run release preflight")
     p.add_argument("--root", default="")
+    p.add_argument("--require-tag", action="store_true", help="require a signed, pushed tag")
 
     p = add("test", cmd_test, "run the package test command")
     p.add_argument("--root", default="")
@@ -582,7 +587,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", default="")
     p.add_argument("--series", action="append", default=[])
     p.add_argument("--revision", type=int, default=None)
-    p.add_argument("--tag", action="store_true")
+    p.add_argument("--tag", dest="tag", action="store_true", default=True, help=argparse.SUPPRESS)
+    p.add_argument("--no-tag", dest="tag", action="store_false", help="do not create the release tag")
 
     p = add("push-release", cmd_push_release, "push main and the signed release tag")
     p.add_argument("--root", default="")

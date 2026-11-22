@@ -83,7 +83,11 @@ def _dpkg_compare(left: str, right: str) -> int | None:
     return 1
 
 
-def check_release(root: Path, config: dict[str, Any] | None = None) -> dict[str, Any]:
+def check_release(
+    root: Path,
+    config: dict[str, Any] | None = None,
+    require_tag: bool = False,
+) -> dict[str, Any]:
     config = config or load_config()
     root = root.expanduser().resolve()
     git = inspect_root(root)
@@ -114,16 +118,24 @@ def check_release(root: Path, config: dict[str, Any] | None = None) -> dict[str,
     if not package.get("signingKey", {}).get("present"):
         blockers.append(f"signing key: {package.get('signingKey', {}).get('message', 'not available')}")
     tag_name = f"v{package.get('baseVersion', '?')}"
-    if not package.get("tag", {}).get("present"):
-        blockers.append(f"release tag {tag_name} is missing")
-    elif not package.get("tag", {}).get("signed"):
+    tag = package.get("tag", {})
+    if not tag.get("present"):
+        if require_tag:
+            blockers.append(f"release tag {tag_name} is missing")
+        else:
+            notes.append(f"release tag {tag_name} will be created by the build")
+    elif not tag.get("signed"):
         blockers.append(f"release tag {tag_name} is not signed")
-    elif not package.get("tag", {}).get("pointsAtHead"):
+    elif not tag.get("pointsAtHead"):
         blockers.append(f"release tag {tag_name} does not point at HEAD")
     elif git.get("isGit"):
         remote_tag = run(["git", "ls-remote", "--tags", "origin", f"refs/tags/{tag_name}"], cwd=root, timeout=30)
-        if remote_tag.returncode != 0 or not remote_tag.stdout.strip():
-            blockers.append(f"release tag {tag_name} is not pushed to origin")
+        pushed = remote_tag.returncode == 0 and bool(remote_tag.stdout.strip())
+        if not pushed:
+            if require_tag:
+                blockers.append(f"release tag {tag_name} is not pushed to origin")
+            else:
+                notes.append(f"release tag {tag_name} exists locally; push it before upload")
 
     profile = profile_for(package.get("source", root.name), config)
     parsed = split_version(package.get("version", ""))
@@ -363,7 +375,7 @@ def build_source(
     series_list: list[str] | None = None,
     revision: int | None = None,
     config: dict[str, Any] | None = None,
-    tag: bool = False,
+    tag: bool = True,
 ) -> dict[str, Any]:
     config = config or load_config()
     root = root.expanduser().resolve()
@@ -600,7 +612,7 @@ def upload(
         return {"ok": False, "error": "upload requires explicit confirmation"}
     if not changes.is_file():
         return {"ok": False, "error": f"changes file not found: {changes}"}
-    check = check_release(root, config)
+    check = check_release(root, config, require_tag=True)
     if not check.get("ok"):
         return {"ok": False, "error": "release preflight failed", "check": check}
     package = check["package"]

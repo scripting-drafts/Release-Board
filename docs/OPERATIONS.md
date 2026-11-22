@@ -16,13 +16,14 @@ source file needs to change.
 
 1. Make the package version change and commit it on `main`.
 2. Push `main`.
-3. Run **Release: preflight**. Fix every blocker.
-4. Run **Release: tag** to create the signed annotated tag.
+3. Run **Release: preflight**. Fix every blocker; a missing release tag is
+   informational because the build creates it.
+4. Run **Release: build source (all series)**. The signed annotated tag is
+   created automatically for the local base version.
 5. Run **Release: push main and tag**.
-6. Run **Release: build source (all series)**.
-7. Run **Release: upload latest** and confirm.
-8. Run **Release: watch publication**; the ledger commits the published event.
-9. Run **Release: trace verify** to check tags, hashes and Launchpad state.
+6. Run **Release: upload latest** and confirm.
+7. Run **Release: watch publication**; the ledger commits the published event.
+8. Run **Release: trace verify** to check tags, hashes and Launchpad state.
 
 The package's installed provenance is visible with:
 

@@ -294,10 +294,9 @@ function registerIpc() {
     const allowed = {
       check: ["check", "--root", root],
       test: ["test", "--root", root],
-      tag: ["tag", "--root", root],
       push: ["push-release", "--root", root],
       binary: ["build-binary", "--root", root],
-      build: ["build-source", "--root", root, "--tag"],
+      build: ["build-source", "--root", root],
       upload: ["upload-latest", "--root", root, "--confirm"],
       watch: ["watch", "--root", root],
     };

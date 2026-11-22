@@ -827,12 +827,11 @@ function renderTasks() {
 
   const grid = h("div", "task-grid");
   const tasks = [
-    ["check", "Run preflight", "Clean tree, upstream sync, tag, signing and Launchpad drift."],
+    ["check", "Run preflight", "Clean tree, upstream sync, signing and Launchpad drift."],
     ["test", "Run tests", "Execute the profile test command in the selected root."],
-    ["tag", "Sign release tag", "Create a signed annotated tag for the local base version."],
-    ["push", "Push main + tag", "Push the release branch and signed tag to origin."],
     ["binary", "Build local .deb", "Build a testable binary package in a temporary source tree."],
-    ["build", "Build source", "Sign the tag and build source packages for every configured series."],
+    ["build", "Build source", "Create the signed tag automatically and build source packages for every configured series."],
+    ["push", "Push main + tag", "Push the release branch and signed tag to origin."],
     ["upload", "Upload latest", "Upload built source changes files after confirmation."],
     ["watch", "Watch publication", "Poll Launchpad until every selected series is published or fails."],
   ];
@@ -995,15 +994,10 @@ async function runTask(name) {
     return;
   }
   const prompts = {
-    tag: {
-      title: "Sign release tag",
-      message: "Create a signed release tag for the local version?",
-      detail: "The tag is created on the current HEAD. It must be pushed before uploading.",
-    },
     build: {
       title: "Build source packages",
-      message: "Sign the release tag and build source packages for every configured series?",
-      detail: "Build runs from a temporary git archive; the working tree is not modified. Launchpad signing key and gpg-agent are used.",
+      message: "Create the signed release tag and build source packages for every configured series?",
+      detail: "The tag is created at HEAD. Build runs from a temporary git archive; the working tree is not modified. Push the tag before uploading.",
     },
     binary: {
       title: "Build local .deb",
