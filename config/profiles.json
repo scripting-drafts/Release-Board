@@ -40,5 +40,23 @@
     "versionFiles": ["debian/changelog", "CHANGELOG.md", "snap/snapcraft.yaml"],
     "sourceNeeds": [],
     "docs": "README.md"
+  },
+  "release-board": {
+    "ppa": "release-board",
+    "series": ["jammy", "noble", "resolute"],
+    "untested": [],
+    "jammyNative": false,
+    "binaryPackage": "release-board",
+    "test": ["python3", "-m", "unittest", "discover", "-s", "tests"],
+    "versionFiles": [
+      "debian/changelog",
+      "package.json",
+      "package-lock.json",
+      "lib/release_board/__init__.py",
+      "lib/release_board/launchpad.py"
+    ],
+    "bumpDates": {},
+    "sourceNeeds": ["node_modules/electron"],
+    "docs": "README.md"
   }
 }

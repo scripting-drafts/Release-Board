@@ -1,3 +1,3 @@
 """Release Board core library."""
 
-__version__ = "0.9.18"
+__version__ = "0.1.3"

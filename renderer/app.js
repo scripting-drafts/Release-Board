@@ -275,6 +275,7 @@ function renderOverview() {
       const headNode = root.head || {};
       card.append(
         kv([
+          ["Version", root.package?.version || "not packaged"],
           ["Branch", root.branch],
           ["Sync", `ahead ${root.ahead || 0} · behind ${root.behind || 0}`],
           ["HEAD", `${headNode.short || ""} ${headNode.subject || ""}`],
@@ -373,6 +374,7 @@ function renderGit() {
     const headNode = root.head || {};
     card.append(
       kv([
+        ["Version", root.package?.version || "not packaged"],
         ["Remote", root.remote || "—"],
         ["Branch", `${root.branch} → ${root.upstream || "no upstream"}`],
         ["Ahead / behind", `+${root.ahead || 0} / -${root.behind || 0}`],
