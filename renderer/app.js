@@ -18,6 +18,9 @@ const state = {
   stoppedPipelines: new Set(),
   repairPreviewing: false,
   repairPrompted: new Set(),
+  resignPreviewing: false,
+  tagStatus: {},
+  tagStatusLoading: {},
   gitRefreshing: false,
   userNavigated: false,
   timer: null,
@@ -97,6 +100,7 @@ function notice(message, error = false) {
 }
 
 const STALE_TAG_RE = /release tag v\S+ does not point at HEAD/;
+const TAG_MESSAGE_RE = /release tag v\S+/;
 
 let dialogState = null;
 
@@ -947,6 +951,216 @@ function sourceBumpedBeyondPipeline(pipeline, root = state.taskRoot) {
   return compareVersions(pkg.baseVersion, pipeline.version) > 0;
 }
 
+function shortCommit(value) {
+  return String(value || "").slice(0, 12) || "—";
+}
+
+function tagStatusText(root = state.taskRoot) {
+  if (state.tagStatusLoading[root]) return "checking…";
+  const cache = state.tagStatus[root];
+  const data = cache?.data;
+  if (!data) return cache?.error ? "unknown · status check failed" : "unknown";
+  const labels = {
+    missing: "missing",
+    stale: data.signed ? "signed · not at HEAD" : "unsigned · not at HEAD",
+    unsigned: "unsigned",
+    unpushed: "signed · at HEAD · not pushed",
+    current: "signed · at HEAD · pushed",
+    unknown: "unknown",
+  };
+  return `${data.name || "tag"} · ${labels[data.state] || data.state || "unknown"}`;
+}
+
+function tagStatusKind(root = state.taskRoot) {
+  const data = state.tagStatus[root]?.data;
+  if (!data) return "";
+  if (data.state === "current") return "good";
+  if (data.state === "stale" || data.state === "unsigned") return "bad";
+  return "warn";
+}
+
+function tagDetailItems(data, { targetHead = "" } = {}) {
+  const items = [];
+  if (data?.name) items.push(`Tag: ${data.name}`);
+  const target = targetHead || data?.head || "";
+  if (target) {
+    items.push(`HEAD: ${shortCommit(target)}${data?.subject ? ` · ${data.subject}` : ""}`);
+  }
+  if (data?.present && data?.commit) items.push(`Tag commit: ${shortCommit(data.commit)}`);
+  if (data?.remote) {
+    const remoteState = !data.remoteConfigured
+      ? "not configured"
+      : !data.remoteKnown
+        ? "status unknown"
+        : data.pushed
+          ? `tag present${data.remoteCommit ? ` at ${shortCommit(data.remoteCommit)}` : ""}`
+          : "no tag";
+    items.push(`Remote: ${data.remote} · ${remoteState}`);
+  }
+  return items;
+}
+
+async function loadTagStatus(root = state.taskRoot, { force = false } = {}) {
+  if (!root) return;
+  const cached = state.tagStatus[root];
+  const fresh = cached && Date.now() - Number(cached.at || 0) < 15000;
+  if (!force && (fresh || state.tagStatusLoading[root])) return;
+  const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  state.tagStatusLoading[root] = token;
+  if (state.view === "tasks" && state.taskRoot === root) renderTasks();
+  let result;
+  try {
+    result = await api.tagStatus({ root });
+  } catch (error) {
+    result = { ok: false, error: String(error?.message || error) };
+  }
+  if (state.tagStatusLoading[root] !== token) return;
+  delete state.tagStatusLoading[root];
+  state.tagStatus[root] = {
+    data: result?.data || null,
+    error: result?.ok ? "" : result?.error || result?.data?.message || "tag status failed",
+    at: Date.now(),
+  };
+  if (state.view === "tasks" && state.taskRoot === root) renderTasks();
+}
+
+function tagActionFor(root = state.taskRoot) {
+  const busy = Boolean(activeTask(root));
+  const loading = Boolean(state.tagStatusLoading[root]);
+  const cache = state.tagStatus[root];
+  const data = cache?.data || null;
+  if (loading) {
+    return {
+      label: "Checking tag…",
+      title: "Checking the local and remote release tag",
+      disabled: true,
+    };
+  }
+  if (!data || cache?.error || data.state === "unknown") {
+    return {
+      label: "Retry on refresh",
+      title: cache?.error || data?.message || "Retry the tag status check",
+      disabled: busy,
+      run: () => loadTagStatus(root, { force: true }),
+    };
+  }
+  switch (data.state) {
+    case "missing":
+      return {
+        label: "Create tag",
+        title: `Create ${data.name} at HEAD`,
+        disabled: busy,
+        run: () => promptTagCreate(root, data),
+      };
+    case "stale":
+      return {
+        label: "Repair tag",
+        title: `Replace ${data.name} at HEAD`,
+        disabled: busy,
+        run: () => previewRepair({ root }),
+      };
+    case "unsigned":
+      return {
+        label: "Re-sign tag",
+        title: `Recreate ${data.name} as a signed tag`,
+        disabled: busy,
+        run: () => previewResign(root),
+      };
+    case "unpushed":
+      return {
+        label: "Push tag",
+        title: `Push ${data.name} to ${data.remote || "origin"}`,
+        disabled: busy,
+        run: () => promptTagPush(root, data),
+      };
+    case "current":
+      return {
+        label: "Tag current",
+        title: `${data.name} is signed, at HEAD and pushed`,
+        disabled: true,
+      };
+    default:
+      return {
+        label: "Retry on refresh",
+        title: data.message || "Retry the tag status check",
+        disabled: busy,
+        run: () => loadTagStatus(root, { force: true }),
+      };
+  }
+}
+
+function promptTagCreate(root, data) {
+  openDialog({
+    title: `Create ${data.name || "release tag"}`,
+    message: "Create a signed release tag at HEAD. The tag stays local until you push it.",
+    items: tagDetailItems(data, { targetHead: data.head }),
+    itemsLabel: "Tag details",
+    confirmLabel: "Create tag",
+    onConfirm: async () => {
+      state.taskRoot = root;
+      await runTask("tagCreate");
+    },
+  });
+}
+
+function promptTagPush(root, data) {
+  openDialog({
+    title: `Push ${data.name || "release tag"}`,
+    message: `Push the signed tag to ${data.remote || "origin"}. The main branch will not be pushed.`,
+    items: tagDetailItems(data, { targetHead: data.head }),
+    itemsLabel: "Tag details",
+    confirmLabel: "Push tag",
+    onConfirm: async () => {
+      state.taskRoot = root;
+      await runTask("tagPush");
+    },
+  });
+}
+
+async function previewResign(root) {
+  if (!root || state.resignPreviewing || activeTask(root)) return;
+  state.resignPreviewing = true;
+  notice("Checking tag re-sign…");
+  try {
+    let preview;
+    try {
+      preview = await api.tagResignPreview({ root });
+    } catch (error) {
+      preview = { ok: false, error: String(error?.message || error) };
+    }
+    const data = preview?.data || {};
+    if (!preview?.ok || data.ok === false) {
+      notice(data.error || preview?.error || "tag re-sign preview failed", true);
+      return;
+    }
+    if (data.action !== "resigned") {
+      notice(data.message || data.error || "tag cannot be re-signed", true);
+      return;
+    }
+    if (state.view !== "tasks" || state.taskRoot !== root) return;
+    openDialog({
+      title: `Re-sign ${data.tag || "release tag"}`,
+      message: data.remote
+        ? "Replace the unsigned tag with a signed tag at HEAD and replace the remote tag."
+        : "Replace the unsigned tag with a signed tag at HEAD.",
+      items: [
+        `Tag: ${data.tag || "—"}`,
+        `Target commit: ${shortCommit(data.head)}${data.subject ? ` · ${data.subject}` : ""}`,
+        `Previous tag commit: ${shortCommit(data.previous)}`,
+        `Remote: ${data.remoteName || "origin"} · ${data.remote ? "tag will be replaced" : "no tag"}`,
+      ],
+      itemsLabel: "Re-sign details",
+      confirmLabel: "Re-sign tag",
+      onConfirm: async () => {
+        state.taskRoot = root;
+        await runTask("tagResign");
+      },
+    });
+  } finally {
+    state.resignPreviewing = false;
+  }
+}
+
 function repairDialogContent(data) {
   const changed = Array.isArray(data.changed) ? data.changed : [];
   if (data.action === "bumped") {
@@ -1041,6 +1255,7 @@ function renderTasks() {
   select.addEventListener("change", () => {
     state.taskRoot = select.value;
     state.pipelineData = null;
+    loadTagStatus(select.value, { force: true });
     renderTasks();
     loadPipelineStatus();
   });
@@ -1059,6 +1274,7 @@ function renderTasks() {
         () => {
           state.taskRoot = rootPath;
           state.pipelineData = null;
+          loadTagStatus(rootPath, { force: true });
           renderTasks();
           loadPipelineStatus();
         }
@@ -1090,6 +1306,7 @@ function renderTasks() {
       ["Package", pipeline.package ? `${pipeline.package} ${pipeline.version || ""}` : "—"],
       ["Step", pipeline.currentStep || "—"],
       ["Updated", pipeline.updatedAt || "—"],
+      ["Tag", pill(tagStatusText(state.taskRoot), tagStatusKind(state.taskRoot))],
     ])
   );
   if (pipeline.conflicts?.length) {
@@ -1107,11 +1324,14 @@ function renderTasks() {
     for (const message of blockers) {
       const row = h("div", "issue bad blocker-row");
       row.append(h("span", "blocker-text", message));
-      if (STALE_TAG_RE.test(message)) {
-        const fix = button("Repair tag…", "subtle", () => previewRepair({ root: state.taskRoot }));
-        fix.title = "Preview and repair the stale release tag";
-        fix.disabled = taskActive;
-        row.append(fix);
+      if (TAG_MESSAGE_RE.test(message)) {
+        const inlineTagAction = tagActionFor(state.taskRoot);
+        if (inlineTagAction.run) {
+          const fix = button(inlineTagAction.label, "subtle", inlineTagAction.run);
+          fix.title = inlineTagAction.title || "Fix the release tag";
+          fix.disabled = inlineTagAction.disabled;
+          row.append(fix);
+        }
       }
       errors.append(row);
     }
@@ -1187,8 +1407,9 @@ function renderTasks() {
     }
   );
   pauseResume.setAttribute("aria-pressed", canResume ? "true" : "false");
-  const repair = button("Repair tag", "ghost", () => previewRepair({ root: state.taskRoot }));
-  repair.title = "Preview and repair a stale release tag";
+  const tagAction = tagActionFor(state.taskRoot);
+  const tagButton = button(tagAction.label, "ghost", tagAction.run || (() => {}));
+  tagButton.title = tagAction.title || "Release tag action";
   const resolve = button("Resolve conflicts", "ghost", async () => {
     const result = await api.resolveConflicts({ root: state.taskRoot });
     if (!result.ok) {
@@ -1199,14 +1420,13 @@ function renderTasks() {
   });
   startStop.disabled = stopping;
   pauseResume.disabled = !canPause && !canResume;
-  repair.disabled = taskActive || !["failed", "blocked"].includes(pipeline.status);
+  tagButton.disabled = tagAction.disabled;
   resolve.disabled = !pipeline.conflicts?.length && pipeline.status !== "blocked";
-  actions.append(startStop, pauseResume);
-  if (!sourceBumped) actions.append(repair);
-  actions.append(resolve);
+  actions.append(startStop, pauseResume, tagButton, resolve);
   panel.append(actions);
   node.append(panel);
   maybePromptStaleTag(blockers, pipelineStatus, taskActive);
+  loadTagStatus(state.taskRoot);
 
   const manualTitle = h("div", "section-title");
   manualTitle.append(h("h2", "", "Manual tasks"));
@@ -1724,12 +1944,13 @@ async function runTask(name) {
     notice("A task is already running for this project.", true);
     return;
   }
+  const command = { tagCreate: "tag", tagResign: "resign-tag", tagPush: "push-tag" }[name] || name;
   const task = {
     id: null,
     name,
     paused: false,
     status: "starting",
-    log: [{ text: `$ release-board ${name} · ${root}`, stream: "stdout" }],
+    log: [{ text: `$ release-board ${command} · ${root}`, stream: "stdout" }],
   };
   state.tasks[root] = task;
   renderTasks();
@@ -1771,11 +1992,24 @@ async function main() {
     const rootName = state.config?.roots?.find((item) => item.path === root)?.name || root;
     if (payload.code === 0 && task.name === "repair") {
       notice(`${rootName}: repair finished. Resume the pipeline to rerun preflight.`);
+    } else if (payload.code === 0 && task.name === "tagCreate") {
+      notice(`${rootName}: signed tag created. Push it when the release is ready.`);
+    } else if (payload.code === 0 && task.name === "tagResign") {
+      notice(`${rootName}: tag re-signed.`);
+    } else if (payload.code === 0 && task.name === "tagPush") {
+      notice(`${rootName}: tag pushed.`);
     } else {
       notice(
         payload.code === 0 ? `${rootName}: task finished.` : `${rootName}: task exited with ${payload.code}.`,
         payload.code !== 0
       );
+    }
+    if (
+      ["repair", "tagCreate", "tagResign", "tagPush", "build", "push", "pipeline", "pipelineResume"].includes(
+        task.name
+      )
+    ) {
+      loadTagStatus(root, { force: true });
     }
     refresh(false);
     loadPipelineStatus();

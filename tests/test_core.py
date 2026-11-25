@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from release_board.board import render_markdown  # noqa: E402
+from release_board import packaging as packaging_module  # noqa: E402
+from release_board import release as release_module  # noqa: E402
 from release_board.bootstrap import BootstrapError, bootstrap, ensure_first_release  # noqa: E402
 from release_board.config import deployment_for, load_config, roots, save_config  # noqa: E402
 from release_board.compare import (  # noqa: E402
@@ -32,6 +35,10 @@ from release_board.release import (  # noqa: E402
     _published_matches,
     _release_records,
     _series_list,
+    create_tag,
+    push_tag,
+    resign_tag,
+    tag_status,
 )
 from release_board.trace import append_event, read_ledger  # noqa: E402
 from release_board.util import git_out, parse_dpkg_changelog, run, series_version, split_version  # noqa: E402
@@ -178,6 +185,280 @@ Description: demo package
             self.assertEqual(data["binaries"][0]["package"], "demo")
             self.assertEqual(data["binaries"][0]["architecture"], "all")
             self.assertEqual(data["binaries"][0]["recommends"], "other")
+
+
+class TagTests(unittest.TestCase):
+    def _repo(self, tmp: Path, version: str = "1.0.0") -> tuple[Path, dict]:
+        repo = tmp / "demo"
+        (repo / "debian" / "source").mkdir(parents=True)
+        (repo / "debian" / "changelog").write_text(
+            f"""demo ({version}) jammy; urgency=medium
+
+  * Initial release.
+
+ -- Test <test@example.invalid>  Sun, 22 Nov 2026 12:00:00 +0100
+""",
+            encoding="utf-8",
+        )
+        (repo / "debian" / "control").write_text(
+            """Source: demo
+Section: utils
+Maintainer: Test <test@example.invalid>
+
+Package: demo
+Architecture: all
+Description: demo
+""",
+            encoding="utf-8",
+        )
+        (repo / "debian" / "source" / "format").write_text("3.0 (native)\n", encoding="utf-8")
+        rules = repo / "debian" / "rules"
+        rules.write_text("#!/usr/bin/make -f\n", encoding="utf-8")
+        rules.chmod(0o755)
+        (repo / "README.md").write_text("demo\n", encoding="utf-8")
+        run(["git", "init", "-q", "-b", "main"], cwd=repo)
+        run(["git", "config", "user.name", "Test"], cwd=repo)
+        run(["git", "config", "user.email", "test@example.invalid"], cwd=repo)
+        run(["git", "add", "-A"], cwd=repo)
+        run(["git", "commit", "-qm", "initial"], cwd=repo)
+        config = {
+            "roots": [{"name": "Demo", "path": str(repo), "remote": "origin"}],
+            "profiles": {
+                "demo": {
+                    "ppa": "demo",
+                    "series": ["jammy"],
+                    "versionFiles": ["debian/changelog"],
+                }
+            },
+            "ledgerPath": str(tmp / "ledger.jsonl"),
+        }
+        return repo, config
+
+    def _remote(self, tmp: Path, repo: Path) -> Path:
+        remote = tmp / "remote.git"
+        run(["git", "init", "--bare", "-q", str(remote)])
+        run(["git", "remote", "add", "origin", str(remote)], cwd=repo)
+        return remote
+
+    def _signed_verify(self):
+        real = packaging_module.run
+
+        def fake(cmd, **kwargs):
+            if list(cmd[:3]) == ["git", "tag", "-v"]:
+                return subprocess.CompletedProcess(cmd, 0, "signed\n", "")
+            return real(cmd, **kwargs)
+
+        return patch("release_board.packaging.run", side_effect=fake)
+
+    def _not_consumed(self):
+        return {
+            "consumed": False,
+            "records": [],
+            "published": [],
+            "publishedBases": [],
+            "launchpadError": "",
+            "reasons": [],
+        }
+
+    def test_status_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            data = tag_status(repo, config)
+            self.assertTrue(data["ok"])
+            self.assertEqual(data["state"], "missing")
+            self.assertFalse(data["present"])
+            self.assertFalse(data["pushed"])
+
+    def test_status_unsigned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "v1.0.0"], cwd=repo)
+            data = tag_status(repo, config)
+            self.assertEqual(data["state"], "unsigned")
+            self.assertFalse(data["signed"])
+            self.assertTrue(data["pointsAtHead"])
+
+    def test_status_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "-a", "v1.0.0", "-m", "Release"], cwd=repo)
+            (repo / "README.md").write_text("next\n", encoding="utf-8")
+            run(["git", "commit", "-qam", "next"], cwd=repo)
+            with self._signed_verify():
+                data = tag_status(repo, config)
+            self.assertEqual(data["state"], "stale")
+            self.assertTrue(data["signed"])
+            self.assertFalse(data["pointsAtHead"])
+
+    def test_status_unpushed_then_current(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "-a", "v1.0.0", "-m", "Release"], cwd=repo)
+            self._remote(Path(tmp), repo)
+            with self._signed_verify():
+                unpushed = tag_status(repo, config)
+            self.assertEqual(unpushed["state"], "unpushed")
+            self.assertFalse(unpushed["pushed"])
+            run(["git", "push", "-q", "origin", "v1.0.0"], cwd=repo)
+            with self._signed_verify():
+                current = tag_status(repo, config)
+            self.assertEqual(current["state"], "current")
+            self.assertTrue(current["pushed"])
+
+    def test_status_remote_only_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "-a", "v1.0.0", "-m", "Release"], cwd=repo)
+            self._remote(Path(tmp), repo)
+            run(["git", "push", "-q", "origin", "v1.0.0"], cwd=repo)
+            run(["git", "tag", "-d", "v1.0.0"], cwd=repo)
+            data = tag_status(repo, config)
+            self.assertEqual(data["state"], "unknown")
+            self.assertIn("exists on origin", data["message"])
+
+    def test_status_remote_error_is_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            self._remote(Path(tmp), repo)
+            real = release_module.run
+
+            def fake(cmd, **kwargs):
+                if list(cmd[:2]) == ["git", "ls-remote"]:
+                    return subprocess.CompletedProcess(cmd, 128, "", "network down")
+                return real(cmd, **kwargs)
+
+            with patch("release_board.release.run", side_effect=fake):
+                data = tag_status(repo, config)
+            self.assertEqual(data["state"], "unknown")
+            self.assertIn("cannot inspect origin tags", data["message"])
+
+    def test_create_tag_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            (repo / "README.md").write_text("dirty\n", encoding="utf-8")
+            dirty = create_tag(repo, config)
+            self.assertFalse(dirty["ok"])
+            self.assertIn("dirty", dirty["error"])
+            run(["git", "checkout", "-q", "--", "README.md"], cwd=repo)
+            run(["git", "checkout", "-q", "-b", "feature"], cwd=repo)
+            not_main = create_tag(repo, config)
+            self.assertFalse(not_main["ok"])
+            self.assertIn("main", not_main["error"])
+
+    def test_create_tag_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            with patch(
+                "release_board.release.ensure_tag",
+                return_value={"ok": True, "tag": "v1.0.0", "created": True},
+            ) as ensure:
+                data = create_tag(repo, config)
+            self.assertTrue(data["ok"])
+            self.assertEqual(data["action"], "created")
+            ensure.assert_called_once()
+
+    def test_create_tag_refuses_remote_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "-a", "v1.0.0", "-m", "Release"], cwd=repo)
+            self._remote(Path(tmp), repo)
+            run(["git", "push", "-q", "origin", "v1.0.0"], cwd=repo)
+            run(["git", "tag", "-d", "v1.0.0"], cwd=repo)
+            data = create_tag(repo, config)
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["action"], "remote-only")
+
+    def test_resign_requires_confirmation_and_previews(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "v1.0.0"], cwd=repo)
+            with patch("release_board.release._consumed_release", return_value=self._not_consumed()):
+                no_confirm = resign_tag(repo, config)
+                self.assertEqual(no_confirm["action"], "confirm-required")
+                preview = resign_tag(repo, config, confirm=True, move_remote=True, dry_run=True)
+            self.assertTrue(preview["ok"])
+            self.assertEqual(preview["action"], "resigned")
+            self.assertTrue(preview["dryRun"])
+
+    def test_resign_rejects_signed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "-a", "v1.0.0", "-m", "Release"], cwd=repo)
+            with self._signed_verify():
+                data = resign_tag(repo, config, confirm=True)
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["action"], "none")
+            self.assertIn("already signed", data["error"])
+
+    def test_resign_rejects_consumed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "v1.0.0"], cwd=repo)
+            consumed = {
+                **self._not_consumed(),
+                "consumed": True,
+                "reasons": ["ledger records: built"],
+            }
+            with patch("release_board.release._consumed_release", return_value=consumed):
+                data = resign_tag(repo, config, confirm=True, move_remote=True)
+            self.assertFalse(data["ok"])
+            self.assertEqual(data["action"], "consumed")
+
+    def test_resign_replaces_local_and_remote_tag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            run(["git", "tag", "v1.0.0"], cwd=repo)
+            remote = self._remote(Path(tmp), repo)
+            run(["git", "push", "-q", "origin", "v1.0.0"], cwd=repo)
+
+            def fake_ensure(root, base, config, message=""):
+                proc = run(
+                    ["git", "tag", "-a", f"v{base}", "-m", message or f"Release v{base}"],
+                    cwd=root,
+                )
+                commit = git_out(["rev-parse", f"v{base}^{{commit}}"], root)
+                head = git_out(["rev-parse", "HEAD"], root)
+                return {
+                    "ok": proc.returncode == 0,
+                    "tag": f"v{base}",
+                    "created": proc.returncode == 0,
+                    "signed": proc.returncode == 0,
+                    "pointsAtHead": commit == head,
+                    "message": (proc.stderr or proc.stdout).strip()[:300],
+                }
+
+            with patch("release_board.release._consumed_release", return_value=self._not_consumed()), \
+                 patch("release_board.release.ensure_tag", side_effect=fake_ensure):
+                data = resign_tag(repo, config, confirm=True, move_remote=True)
+            self.assertTrue(data["ok"], data)
+            self.assertEqual(data["action"], "resigned")
+            self.assertTrue(data["remote"])
+            self.assertEqual(run(["git", "cat-file", "-t", "v1.0.0"], cwd=repo).stdout.strip(), "tag")
+            remote_tags = run(
+                ["git", "ls-remote", "--tags", str(remote), "refs/tags/v1.0.0"]
+            ).stdout
+            self.assertIn("refs/tags/v1.0.0", remote_tags)
+
+    def test_push_tag_guards_and_push(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, config = self._repo(Path(tmp))
+            self._remote(Path(tmp), repo)
+            missing = push_tag(repo, config)
+            self.assertFalse(missing["ok"])
+            self.assertEqual(missing["action"], "missing")
+            run(["git", "tag", "v1.0.0"], cwd=repo)
+            unsigned = push_tag(repo, config)
+            self.assertFalse(unsigned["ok"])
+            self.assertEqual(unsigned["action"], "unsigned")
+            run(["git", "tag", "-d", "v1.0.0"], cwd=repo)
+            run(["git", "tag", "-a", "v1.0.0", "-m", "Release"], cwd=repo)
+            with self._signed_verify():
+                pushed = push_tag(repo, config)
+                current = push_tag(repo, config)
+            self.assertTrue(pushed["ok"], pushed)
+            self.assertEqual(pushed["action"], "pushed")
+            self.assertTrue(current["ok"], current)
+            self.assertEqual(current["action"], "current")
 
 
 class LaunchpadTests(unittest.TestCase):

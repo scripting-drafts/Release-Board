@@ -263,6 +263,39 @@ def _published_rows(
     return rows, ""
 
 
+def _consumed_release(
+    config: dict[str, Any],
+    package: dict[str, Any],
+    profile: dict[str, Any],
+    base: str,
+) -> dict[str, Any]:
+    records = _release_records(config, str(package.get("source", "")), base)
+    published, launchpad_error = _published_rows(config, package, profile)
+    consumed = bool(records)
+    for row in published:
+        comparison = _dpkg_compare(row.get("publishedBase", ""), base)
+        if comparison is not None and comparison >= 0:
+            consumed = True
+            break
+    reasons = []
+    if records:
+        events = sorted({str(item.get("event", "")) for item in records})
+        reasons.append("ledger records: " + ", ".join(events))
+    published_bases = sorted(
+        {row["publishedBase"] for row in published if row.get("publishedBase")}
+    )
+    if published_bases:
+        reasons.append("published: " + ", ".join(published_bases))
+    return {
+        "consumed": consumed,
+        "records": records,
+        "published": published,
+        "publishedBases": published_bases,
+        "launchpadError": launchpad_error,
+        "reasons": reasons,
+    }
+
+
 def _changelog_entry(
     package: dict[str, Any],
     new_base: str,
@@ -479,26 +512,10 @@ def repair_release(
 
     base = package.get("baseVersion", "")
     profile = profile_for(package.get("source", root.name), config)
-    records = _release_records(config, str(package.get("source", "")), base)
-    published, launchpad_error = _published_rows(config, package, profile)
-    consumed = bool(records)
-    for row in published:
-        comparison = _dpkg_compare(row.get("publishedBase", ""), base)
-        if comparison is not None and comparison >= 0:
-            consumed = True
-            break
+    consumed = _consumed_release(config, package, profile, base)
 
-    if consumed:
+    if consumed["consumed"]:
         if not bump:
-            reasons = []
-            if records:
-                events = sorted({str(item.get("event", "")) for item in records})
-                reasons.append("ledger records: " + ", ".join(events))
-            published_bases = sorted(
-                {row["publishedBase"] for row in published if row.get("publishedBase")}
-            )
-            if published_bases:
-                reasons.append("published: " + ", ".join(published_bases))
             return {
                 "ok": False,
                 "action": "bump-required",
@@ -506,14 +523,11 @@ def repair_release(
                     f"{tag_name} is stale and release {base} is already consumed; "
                     "bump the base version instead of moving the tag"
                 ),
-                "reasons": reasons,
-                "records": len(records),
-                "published": published,
-                "launchpadError": launchpad_error,
+                "reasons": consumed["reasons"],
+                "records": len(consumed["records"]),
+                "published": consumed["published"],
+                "launchpadError": consumed["launchpadError"],
             }
-        published_bases = [
-            row["publishedBase"] for row in published if row.get("publishedBase")
-        ]
         return _bump_release(
             root,
             config,
@@ -521,7 +535,7 @@ def repair_release(
             tag_name,
             commit,
             dry_run,
-            published_bases=published_bases,
+            published_bases=consumed["publishedBases"],
         )
 
     remote = root_entry(root, config).get("remote", "origin")
@@ -651,6 +665,360 @@ def ensure_tag(root: Path, base: str, config: dict[str, Any], message: str = "")
         "pointsAtHead": commit == head,
         "message": (proc.stderr or proc.stdout).strip()[:300],
     }
+
+
+def _tag_state(status: dict[str, Any]) -> str:
+    if not status.get("present"):
+        return "missing"
+    if not status.get("pointsAtHead"):
+        return "stale"
+    if not status.get("signed"):
+        return "unsigned"
+    if not status.get("remoteKnown"):
+        return "unknown"
+    if not status.get("pushed"):
+        return "unpushed"
+    return "current"
+
+
+def _remote_tag(root: Path, remote: str, tag_name: str) -> dict[str, Any]:
+    configured = (
+        run(["git", "remote", "get-url", remote], cwd=root, timeout=10).returncode == 0
+    )
+    if not configured:
+        return {
+            "known": True,
+            "configured": False,
+            "pushed": False,
+            "object": "",
+            "commit": "",
+            "error": "",
+        }
+    proc = run(
+        ["git", "ls-remote", "--tags", remote, f"refs/tags/{tag_name}*"],
+        cwd=root,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        return {
+            "known": False,
+            "configured": True,
+            "pushed": False,
+            "object": "",
+            "commit": "",
+            "error": (proc.stderr or proc.stdout).strip(),
+        }
+    tag_object = ""
+    tag_commit = ""
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            continue
+        sha, ref = parts
+        if ref == f"refs/tags/{tag_name}":
+            tag_object = sha
+        elif ref == f"refs/tags/{tag_name}^{{}}":
+            tag_commit = sha
+    return {
+        "known": True,
+        "configured": True,
+        "pushed": bool(tag_object or tag_commit),
+        "object": tag_object,
+        "commit": tag_commit or tag_object,
+        "error": "",
+    }
+
+
+def tag_status(root: Path, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Inspect the release tag locally and on the configured remote."""
+    config = config or load_config()
+    root = root.expanduser().resolve()
+    package = inspect_package(root, config)
+    tag = package.get("tag", {})
+    tag_name = tag.get("name") or f"v{package.get('baseVersion', '')}"
+    result: dict[str, Any] = {
+        "ok": False,
+        "state": "unknown",
+        "name": tag_name,
+        "baseVersion": str(package.get("baseVersion", "")),
+        "present": bool(tag.get("present")),
+        "signed": bool(tag.get("signed")),
+        "pointsAtHead": bool(tag.get("pointsAtHead")),
+        "pushed": False,
+        "remote": "",
+        "remoteKnown": False,
+        "remoteConfigured": False,
+        "remoteCommit": "",
+        "commit": str(tag.get("commit", "")),
+        "head": "",
+        "subject": "",
+        "message": "",
+    }
+    git = inspect_root(root)
+    head = git.get("head", {}) if isinstance(git.get("head"), dict) else {}
+    result["head"] = str(head.get("sha", ""))
+    result["subject"] = str(head.get("subject", ""))
+    if package.get("errors"):
+        result["message"] = "; ".join(str(item) for item in package["errors"])
+        return result
+    if not git.get("isGit"):
+        result["message"] = "not a Git repository"
+        return result
+
+    entry = root_entry(root, config)
+    remote = str(entry.get("remote") or "origin")
+    result["remote"] = remote
+    remote_state = _remote_tag(root, remote, tag_name)
+    result["remoteKnown"] = bool(remote_state["known"])
+    result["remoteConfigured"] = bool(remote_state["configured"])
+    result["pushed"] = bool(remote_state["pushed"])
+    result["remoteCommit"] = str(remote_state["commit"])
+    result["ok"] = True
+    if not remote_state["known"]:
+        result["state"] = "unknown"
+        result["message"] = f"cannot inspect {remote} tags: {remote_state['error']}"
+        return result
+    if not result["present"] and result["pushed"]:
+        result["state"] = "unknown"
+        result["message"] = f"{tag_name} exists on {remote} but not locally; fetch tags and retry"
+        return result
+    if not remote_state["configured"]:
+        result["message"] = f"remote {remote} is not configured"
+    result["state"] = _tag_state(result)
+    return result
+
+
+def create_tag(
+    root: Path,
+    config: dict[str, Any] | None = None,
+    message: str = "",
+) -> dict[str, Any]:
+    """Create the signed release tag at HEAD without building."""
+    config = config or load_config()
+    root = root.expanduser().resolve()
+    package = inspect_package(root, config)
+    if package.get("errors"):
+        return {
+            "ok": False,
+            "error": "packaging preflight failed",
+            "details": package["errors"],
+        }
+    tag = package.get("tag", {})
+    tag_name = tag.get("name") or f"v{package.get('baseVersion', '')}"
+    if tag.get("present"):
+        return {
+            "ok": False,
+            "action": "exists",
+            "tag": tag_name,
+            "error": f"{tag_name} already exists",
+        }
+    git = inspect_root(root)
+    if not git.get("isGit"):
+        return {"ok": False, "error": "not a Git repository"}
+    if git.get("statusError"):
+        return {"ok": False, "error": f"cannot read git status: {git['statusError']}"}
+    if git.get("dirty"):
+        return {
+            "ok": False,
+            "error": (
+                f"working tree is dirty ({git['dirty']} file(s)); "
+                "commit before creating a release tag"
+            ),
+        }
+    if git.get("branch") != "main":
+        return {
+            "ok": False,
+            "error": f"create tags from main, not {git.get('branch') or 'detached HEAD'}",
+        }
+    remote = str(root_entry(root, config).get("remote") or "origin")
+    remote_state = _remote_tag(root, remote, tag_name)
+    if not remote_state["known"]:
+        return {
+            "ok": False,
+            "error": f"cannot inspect {remote} tags: {remote_state['error']}",
+        }
+    if remote_state["pushed"]:
+        return {
+            "ok": False,
+            "action": "remote-only",
+            "tag": tag_name,
+            "remote": remote,
+            "error": f"{tag_name} already exists on {remote}; fetch tags and retry",
+        }
+    created = ensure_tag(
+        root,
+        str(package.get("baseVersion", "")),
+        config,
+        message=message or f"Release {tag_name}",
+    )
+    if not created.get("ok"):
+        return {
+            "ok": False,
+            "error": f"cannot create {tag_name}",
+            "tag": created,
+        }
+    head = git.get("head", {}) if isinstance(git.get("head"), dict) else {}
+    return {
+        "ok": True,
+        "action": "created",
+        "tag": tag_name,
+        "commit": str(head.get("sha", "")),
+        "subject": str(head.get("subject", "")),
+        "remote": remote,
+        "created": created,
+    }
+
+
+def resign_tag(
+    root: Path,
+    config: dict[str, Any] | None = None,
+    confirm: bool = False,
+    move_remote: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Replace an unsigned tag with a signed tag without rewriting history."""
+    config = config or load_config()
+    root = root.expanduser().resolve()
+    package = inspect_package(root, config)
+    if package.get("errors"):
+        return {
+            "ok": False,
+            "error": "packaging preflight failed",
+            "details": package["errors"],
+        }
+    tag = package.get("tag", {})
+    tag_name = tag.get("name") or f"v{package.get('baseVersion', '')}"
+    if not tag.get("present"):
+        return {
+            "ok": False,
+            "action": "missing",
+            "error": f"{tag_name} is missing; create it instead",
+        }
+    if tag.get("signed"):
+        return {
+            "ok": False,
+            "action": "none",
+            "error": f"{tag_name} is already signed",
+        }
+    if not tag.get("pointsAtHead"):
+        return {
+            "ok": False,
+            "action": "stale",
+            "error": f"{tag_name} does not point at HEAD; repair it instead",
+        }
+    git = inspect_root(root)
+    if not git.get("isGit"):
+        return {"ok": False, "error": "not a Git repository"}
+    if git.get("statusError"):
+        return {"ok": False, "error": f"cannot read git status: {git['statusError']}"}
+    if git.get("dirty"):
+        return {
+            "ok": False,
+            "error": (
+                f"working tree is dirty ({git['dirty']} file(s)); "
+                "commit before re-signing the tag"
+            ),
+        }
+    if git.get("branch") != "main":
+        return {
+            "ok": False,
+            "error": f"re-sign tags from main, not {git.get('branch') or 'detached HEAD'}",
+        }
+    base = str(package.get("baseVersion", ""))
+    profile = profile_for(package.get("source", root.name), config)
+    consumed = _consumed_release(config, package, profile, base)
+    if consumed["consumed"]:
+        return {
+            "ok": False,
+            "action": "consumed",
+            "error": (
+                f"{tag_name} belongs to a consumed release; "
+                "bump the version with Repair instead of re-signing"
+            ),
+            "reasons": consumed["reasons"],
+            "records": len(consumed["records"]),
+            "published": consumed["published"],
+            "launchpadError": consumed["launchpadError"],
+        }
+    remote = str(root_entry(root, config).get("remote") or "origin")
+    remote_state = _remote_tag(root, remote, tag_name)
+    if not remote_state["known"]:
+        return {
+            "ok": False,
+            "error": f"cannot inspect {remote} tags: {remote_state['error']}",
+        }
+    if remote_state["pushed"] and not move_remote:
+        return {
+            "ok": False,
+            "action": "move-required",
+            "error": (
+                f"{tag_name} exists on {remote}; "
+                "confirm replacing the remote tag before re-signing"
+            ),
+            "remote": remote,
+        }
+    if not confirm and not dry_run:
+        return {
+            "ok": False,
+            "action": "confirm-required",
+            "error": f"re-signing {tag_name} requires confirmation",
+        }
+    head = git.get("head", {}) if isinstance(git.get("head"), dict) else {}
+    details = {
+        "tag": tag_name,
+        "previous": str(tag.get("commit", "")),
+        "head": str(head.get("sha", "")),
+        "subject": str(head.get("subject", "")),
+        "remoteName": remote,
+        "remote": bool(remote_state["pushed"]),
+        "remoteCommit": str(remote_state["commit"]),
+    }
+    if dry_run:
+        return {"ok": True, "action": "resigned", "dryRun": True, **details}
+
+    previous_object = git_out(["rev-parse", f"refs/tags/{tag_name}"], root)
+    delete_local = run(["git", "tag", "-d", tag_name], cwd=root, timeout=30)
+    if delete_local.returncode != 0:
+        return {
+            "ok": False,
+            "error": f"cannot delete local tag {tag_name}",
+            "output": (delete_local.stderr or delete_local.stdout).strip(),
+        }
+    created = ensure_tag(root, base, config, message=f"Release {tag_name}")
+    if not created.get("ok"):
+        if previous_object:
+            run(
+                ["git", "update-ref", f"refs/tags/{tag_name}", previous_object],
+                cwd=root,
+                timeout=30,
+            )
+        return {
+            "ok": False,
+            "error": f"cannot recreate {tag_name}",
+            "tag": created,
+            **details,
+        }
+    if remote_state["pushed"]:
+        args = [
+            "git",
+            "push",
+            f"--force-with-lease=refs/tags/{tag_name}:{remote_state['object']}",
+            remote,
+            f"refs/tags/{tag_name}",
+        ]
+        pushed = run(args, cwd=root, timeout=120)
+        if pushed.returncode != 0:
+            return {
+                "ok": False,
+                "action": "partial",
+                "error": (
+                    f"{tag_name} was re-signed locally but "
+                    f"the tag on {remote} could not be replaced"
+                ),
+                "output": (pushed.stderr or pushed.stdout).strip(),
+                **details,
+            }
+    return {"ok": True, "action": "resigned", **details}
 
 
 def _rewrite_changelog(path: Path, package: str, version: str, series: str) -> None:
@@ -961,6 +1329,83 @@ def push_release(root: Path, config: dict[str, Any] | None = None) -> dict[str, 
         if proc.returncode != 0:
             break
     return {"ok": all(item["ok"] for item in results), "tag": tag, "pushes": results}
+
+
+def push_tag(root: Path, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Push the signed release tag without pushing the branch."""
+    config = config or load_config()
+    root = root.expanduser().resolve()
+    package = inspect_package(root, config)
+    if package.get("errors"):
+        return {
+            "ok": False,
+            "error": "packaging preflight failed",
+            "details": package["errors"],
+        }
+    tag = package.get("tag", {})
+    tag_name = tag.get("name") or f"v{package.get('baseVersion', '')}"
+    if not tag.get("present"):
+        return {
+            "ok": False,
+            "action": "missing",
+            "error": f"{tag_name} is missing; create it first",
+        }
+    if not tag.get("signed"):
+        return {
+            "ok": False,
+            "action": "unsigned",
+            "error": f"{tag_name} is not signed; re-sign it first",
+        }
+    if not tag.get("pointsAtHead"):
+        return {
+            "ok": False,
+            "action": "stale",
+            "error": f"{tag_name} does not point at HEAD; repair it first",
+        }
+    git = inspect_root(root)
+    if not git.get("isGit"):
+        return {"ok": False, "error": "not a Git repository"}
+    if git.get("branch") != "main":
+        return {
+            "ok": False,
+            "error": f"push tags from main, not {git.get('branch') or 'detached HEAD'}",
+        }
+    remote = str(root_entry(root, config).get("remote") or "origin")
+    remote_state = _remote_tag(root, remote, tag_name)
+    if not remote_state["known"]:
+        return {
+            "ok": False,
+            "error": f"cannot inspect {remote} tags: {remote_state['error']}",
+        }
+    if not remote_state["configured"]:
+        return {"ok": False, "error": f"remote {remote} is not configured"}
+    if remote_state["pushed"]:
+        if remote_state["commit"] == str(tag.get("commit", "")):
+            return {
+                "ok": True,
+                "action": "current",
+                "tag": tag_name,
+                "remote": remote,
+                "message": f"{tag_name} is already pushed to {remote}",
+            }
+        return {
+            "ok": False,
+            "action": "remote-mismatch",
+            "tag": tag_name,
+            "remote": remote,
+            "error": (
+                f"{tag_name} on {remote} points at a different commit; "
+                "repair the remote tag instead"
+            ),
+        }
+    proc = run(["git", "push", remote, f"refs/tags/{tag_name}"], cwd=root, timeout=120)
+    return {
+        "ok": proc.returncode == 0,
+        "action": "pushed" if proc.returncode == 0 else "failed",
+        "tag": tag_name,
+        "remote": remote,
+        "output": (proc.stdout + proc.stderr).strip(),
+    }
 
 
 def build_binary(

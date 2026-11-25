@@ -36,10 +36,13 @@ from .release import (
     build_binary,
     build_source,
     check_release,
-    ensure_tag,
+    create_tag,
     push_release,
+    push_tag,
     repair_release,
+    resign_tag,
     run_tests,
+    tag_status,
     upload,
     watch,
 )
@@ -393,13 +396,38 @@ def cmd_test(args: argparse.Namespace) -> int:
 def cmd_tag(args: argparse.Namespace) -> int:
     config = load_config()
     root = _resolve_root(args.root, config)
-    changelog = parse_dpkg_changelog(root)
-    if not changelog:
-        print("debian/changelog is missing", file=sys.stderr)
-        return 1
-    base = split_version(changelog.get("version", ""))["base"]
-    payload = ensure_tag(root, base, config, args.message)
-    _print(payload, args.json, json.dumps(payload, indent=2))
+    payload = create_tag(root, config, args.message)
+    _print(payload, args.json, json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_tag_status(args: argparse.Namespace) -> int:
+    config = load_config()
+    root = _resolve_root(args.root, config)
+    payload = tag_status(root, config)
+    _print(payload, args.json, json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_resign_tag(args: argparse.Namespace) -> int:
+    config = load_config()
+    root = _resolve_root(args.root, config)
+    payload = resign_tag(
+        root,
+        config,
+        confirm=args.confirm,
+        move_remote=args.move_remote,
+        dry_run=args.dry_run,
+    )
+    _print(payload, args.json, json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+def cmd_push_tag(args: argparse.Namespace) -> int:
+    config = load_config()
+    root = _resolve_root(args.root, config)
+    payload = push_tag(root, config)
+    _print(payload, args.json, json.dumps(payload, indent=2, sort_keys=True))
     return 0 if payload.get("ok") else 1
 
 
@@ -744,6 +772,18 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("tag", cmd_tag, "create or verify the signed release tag")
     p.add_argument("--root", default="")
     p.add_argument("--message", default="")
+
+    p = add("tag-status", cmd_tag_status, "inspect the release tag locally and on the remote")
+    p.add_argument("--root", default="")
+
+    p = add("resign-tag", cmd_resign_tag, "replace an unsigned release tag with a signed tag")
+    p.add_argument("--root", default="")
+    p.add_argument("--confirm", action="store_true")
+    p.add_argument("--move-remote", action="store_true", help="replace the tag on the remote")
+    p.add_argument("--dry-run", action="store_true")
+
+    p = add("push-tag", cmd_push_tag, "push the signed release tag without the branch")
+    p.add_argument("--root", default="")
 
     p = add("build-source", cmd_build, "build signed source packages")
     p.add_argument("--root", default="")

@@ -281,6 +281,21 @@ function registerIpc() {
 
   ipcMain.handle("pkg:get", async () => cli(["pkg", "--json"], 120000));
 
+  ipcMain.handle("tag:status", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    return cli(["tag-status", "--root", root, "--json"], 60000);
+  });
+
+  ipcMain.handle("tag:resignPreview", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    return cli(
+      ["resign-tag", "--root", root, "--confirm", "--move-remote", "--dry-run", "--json"],
+      120000
+    );
+  });
+
   ipcMain.handle("pkg:openVersionFile", async (_event, options = {}) => {
     const config = await getConfig();
     const root = validateRoot(options.root, config);
@@ -395,6 +410,9 @@ function registerIpc() {
       pipelineResume: ["pipeline", "--root", root, "--resume", "--confirm"],
       pipelineStatus: ["pipeline", "--root", root, "--status", "--json"],
       repair: ["repair", "--root", root, "--bump", "--move-tag", "--commit", "--confirm"],
+      tagCreate: ["tag", "--root", root],
+      tagResign: ["resign-tag", "--root", root, "--confirm", "--move-remote"],
+      tagPush: ["push-tag", "--root", root],
       binary: ["build-binary", "--root", root],
       build: ["build-source", "--root", root],
       upload: ["upload-latest", "--root", root, "--confirm"],

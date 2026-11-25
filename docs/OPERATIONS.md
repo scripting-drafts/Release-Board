@@ -31,6 +31,23 @@ The package's installed provenance is visible with:
 cat /usr/share/doc/qa-dashboard/provenance.json
 ```
 
+## Tag actions
+
+The Lifecycle tasks view checks the selected root's release tag locally and on
+the configured remote, then offers the matching action:
+
+- **Create tag** — no `v<base>` tag exists; create a signed tag at HEAD.
+- **Repair tag** — the tag does not point at HEAD; preview the replacement.
+- **Re-sign tag** — the tag is at HEAD but unsigned; recreate it signed.
+- **Push tag** — the signed tag is at HEAD but absent on the remote.
+- **Tag current** — signed, at HEAD and pushed; no action is needed.
+- **Retry on refresh** — the remote check failed or the tag exists only on the
+  remote; retry after refreshing refs.
+
+Create and push run after a confirmation dialog; Repair and Re-sign use the
+existing preview flow. Re-signing is refused when the release already has
+build, upload or publish records; use Repair's version bump instead.
+
 ## Source diff
 
 **Source diff** shows the changed-file tree for:

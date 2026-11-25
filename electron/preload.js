@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("releaseBoard", {
   compareComparison: (options = {}) => ipcRenderer.invoke("compare:openComparison", options),
   compareFile: (options = {}) => ipcRenderer.invoke("compare:openFile", options),
   pkg: () => ipcRenderer.invoke("pkg:get"),
+  tagStatus: (options = {}) => ipcRenderer.invoke("tag:status", options),
+  tagResignPreview: (options = {}) => ipcRenderer.invoke("tag:resignPreview", options),
   openVersionFile: (options = {}) => ipcRenderer.invoke("pkg:openVersionFile", options),
   launchpad: (options = {}) => ipcRenderer.invoke("launchpad:get", options),
   trace: () => ipcRenderer.invoke("trace:get"),
