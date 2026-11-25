@@ -1,3 +1,15 @@
+release-board (0.1.1) jammy; urgency=medium
+
+  * Changes since the previous release:
+    - Block dirty first releases and unreadable Git state
+    - :)
+    - :|
+    - Enable Resume for resumable pipeline failures
+    - +
+    - clickable version files
+
+ -- scripting-drafts <12766134+scripting-drafts@users.noreply.github.com>  Wed, 25 Nov 2026 20:53:58 +0100
+
 release-board (0.1.0) jammy; urgency=medium
 
   * Initial release.
