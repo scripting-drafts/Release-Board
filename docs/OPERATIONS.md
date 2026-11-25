@@ -44,8 +44,8 @@ the configured remote, then offers the matching action:
 - **Retry on refresh** — the remote check failed or the tag exists only on the
   remote; retry after refreshing refs.
 
-Create and push run after a confirmation dialog; Repair and Re-sign use the
-existing preview flow. Re-signing is refused when the release already has
+Create and Push run immediately. Repair and Re-sign use the preview flow because
+they rewrite tag refs. Re-signing is refused when the release already has
 build, upload or publish records; use Repair's version bump instead.
 
 ## Source diff

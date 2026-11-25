@@ -981,27 +981,6 @@ function tagStatusKind(root = state.taskRoot) {
   return "warn";
 }
 
-function tagDetailItems(data, { targetHead = "" } = {}) {
-  const items = [];
-  if (data?.name) items.push(`Tag: ${data.name}`);
-  const target = targetHead || data?.head || "";
-  if (target) {
-    items.push(`HEAD: ${shortCommit(target)}${data?.subject ? ` · ${data.subject}` : ""}`);
-  }
-  if (data?.present && data?.commit) items.push(`Tag commit: ${shortCommit(data.commit)}`);
-  if (data?.remote) {
-    const remoteState = !data.remoteConfigured
-      ? "not configured"
-      : !data.remoteKnown
-        ? "status unknown"
-        : data.pushed
-          ? `tag present${data.remoteCommit ? ` at ${shortCommit(data.remoteCommit)}` : ""}`
-          : "no tag";
-    items.push(`Remote: ${data.remote} · ${remoteState}`);
-  }
-  return items;
-}
-
 async function loadTagStatus(root = state.taskRoot, { force = false } = {}) {
   if (!root) return;
   const cached = state.tagStatus[root];
@@ -1031,92 +1010,19 @@ function tagActionFor(root = state.taskRoot) {
   const loading = Boolean(state.tagStatusLoading[root]);
   const cache = state.tagStatus[root];
   const data = cache?.data || null;
-  if (loading) {
-    return {
-      label: "Checking tag…",
-      title: "Checking the local and remote release tag",
-      disabled: true,
-    };
-  }
-  if (!data || cache?.error || data.state === "unknown") {
-    return {
-      label: "Retry on refresh",
-      title: cache?.error || data?.message || "Retry the tag status check",
-      disabled: busy,
-      run: () => loadTagStatus(root, { force: true }),
-    };
-  }
-  switch (data.state) {
-    case "missing":
-      return {
-        label: "Create tag",
-        title: `Create ${data.name} at HEAD`,
-        disabled: busy,
-        run: () => promptTagCreate(root, data),
-      };
-    case "stale":
-      return {
-        label: "Repair tag",
-        title: `Replace ${data.name} at HEAD`,
-        disabled: busy,
-        run: () => previewRepair({ root }),
-      };
-    case "unsigned":
-      return {
-        label: "Re-sign tag",
-        title: `Recreate ${data.name} as a signed tag`,
-        disabled: busy,
-        run: () => previewResign(root),
-      };
-    case "unpushed":
-      return {
-        label: "Push tag",
-        title: `Push ${data.name} to ${data.remote || "origin"}`,
-        disabled: busy,
-        run: () => promptTagPush(root, data),
-      };
-    case "current":
-      return {
-        label: "Tag current",
-        title: `${data.name} is signed, at HEAD and pushed`,
-        disabled: true,
-      };
-    default:
-      return {
-        label: "Retry on refresh",
-        title: data.message || "Retry the tag status check",
-        disabled: busy,
-        run: () => loadTagStatus(root, { force: true }),
-      };
-  }
-}
-
-function promptTagCreate(root, data) {
-  openDialog({
-    title: `Create ${data.name || "release tag"}`,
-    message: "Create a signed release tag at HEAD. The tag stays local until you push it.",
-    items: tagDetailItems(data, { targetHead: data.head }),
-    itemsLabel: "Tag details",
-    confirmLabel: "Create tag",
-    onConfirm: async () => {
-      state.taskRoot = root;
-      await runTask("tagCreate");
-    },
+  const action = window.tagActions.tagActionState(data, {
+    busy,
+    loading,
+    error: cache?.error || "",
   });
-}
-
-function promptTagPush(root, data) {
-  openDialog({
-    title: `Push ${data.name || "release tag"}`,
-    message: `Push the signed tag to ${data.remote || "origin"}. The main branch will not be pushed.`,
-    items: tagDetailItems(data, { targetHead: data.head }),
-    itemsLabel: "Tag details",
-    confirmLabel: "Push tag",
-    onConfirm: async () => {
-      state.taskRoot = root;
-      await runTask("tagPush");
-    },
-  });
+  const runners = {
+    retry: () => loadTagStatus(root, { force: true }),
+    missing: () => runTask("tagCreate"),
+    stale: () => previewRepair({ root }),
+    unsigned: () => previewResign(root),
+    unpushed: () => runTask("tagPush"),
+  };
+  return { ...action, run: runners[action.action] };
 }
 
 async function previewResign(root) {

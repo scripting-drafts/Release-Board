@@ -14,7 +14,8 @@
   "homepage": "https://github.com/scripting-drafts/Release-Board",
   "scripts": {
     "start": "electron .",
-    "test": "python3 -m unittest discover -s tests -v"
+    "test": "python3 -m unittest discover -s tests -v && node --test tests/tag_actions.test.js",
+    "test:js": "node --test tests/tag_actions.test.js"
   },
   "devDependencies": {
     "electron": "45.2.3"
