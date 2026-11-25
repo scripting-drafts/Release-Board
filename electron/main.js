@@ -131,6 +131,26 @@ function safeExternal(url, config = configCache) {
   }
 }
 
+function openInEditor(filePath) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const fallback = async () => {
+      if (settled) return;
+      settled = true;
+      const error = await shell.openPath(filePath);
+      resolve(error ? { ok: false, error } : { ok: true, opened: "default" });
+    };
+    const child = spawn("zed", [filePath], { detached: true, stdio: "ignore" });
+    child.once("error", fallback);
+    child.once("spawn", () => {
+      if (settled) return;
+      settled = true;
+      child.unref();
+      resolve({ ok: true, opened: "zed" });
+    });
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1320,
@@ -260,6 +280,40 @@ function registerIpc() {
   });
 
   ipcMain.handle("pkg:get", async () => cli(["pkg", "--json"], 120000));
+
+  ipcMain.handle("pkg:openVersionFile", async (_event, options = {}) => {
+    const config = await getConfig();
+    const root = validateRoot(options.root, config);
+    const file = String(options.file || "");
+    if (!file) return { ok: false, error: "missing version file" };
+    const inspected = await cli(["pkg", "--json", "--root", root], 120000);
+    const pkg = (inspected.data?.packages || []).find((item) => path.resolve(item.path || "") === root);
+    if (!inspected.ok || !pkg) {
+      return { ok: false, error: inspected.error || "could not inspect package" };
+    }
+    const entry = (pkg.versionFiles || []).find((item) => item.file === file);
+    if (!entry) return { ok: false, error: `not a configured version file: ${file}` };
+    if (!entry.exists) return { ok: false, error: `version file is missing: ${file}` };
+    const resolved = path.resolve(root, file);
+    if (!resolved.startsWith(root + path.sep)) {
+      return { ok: false, error: "version file is outside the package root" };
+    }
+    let realFile = "";
+    try {
+      realFile = fs.realpathSync(resolved);
+      if (!realFile.startsWith(fs.realpathSync(root) + path.sep)) {
+        return { ok: false, error: "version file resolves outside the package root" };
+      }
+      if (!fs.statSync(realFile).isFile()) {
+        return { ok: false, error: `version file is not a regular file: ${file}` };
+      }
+    } catch {
+      return { ok: false, error: `version file is missing: ${file}` };
+    }
+    const opened = await openInEditor(realFile);
+    return { ...opened, file, path: realFile };
+  });
+
   ipcMain.handle("launchpad:get", async (_event, options = {}) => {
     const args = ["launchpad", "--json"];
     if (options.refresh) args.push("--refresh");

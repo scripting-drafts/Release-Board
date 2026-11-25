@@ -401,6 +401,15 @@ button:disabled {
   background: var(--red-soft);
 }
 
+.pill.clickable:hover {
+  border-color: var(--accent);
+}
+
+.pill.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .pill.info {
   color: var(--blue);
   border-color: rgba(125, 185, 239, 0.3);

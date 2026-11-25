@@ -715,7 +715,13 @@ function renderPackaging() {
       block.append(h("div", "card-section-title", "Version files"));
       const chips = h("div", "chips");
       for (const file of files) {
-        chips.append(pill(`${file.file} ${file.matches ? "✓" : "✗"}`, file.matches ? "good" : "bad"));
+        const chip = pill(`${file.file} ${file.matches ? "✓" : "✗"}`, file.matches ? "good" : "bad");
+        if (file.exists) {
+          clickable(chip, () => openVersionFile(pkg.path, file.file), `Open ${file.file}`);
+        } else {
+          chip.title = `${file.file} is missing`;
+        }
+        chips.append(chip);
       }
       block.append(chips);
       card.append(block);
@@ -724,6 +730,15 @@ function renderPackaging() {
     grid.append(card);
   }
   node.append(grid);
+}
+
+async function openVersionFile(root, file) {
+  const result = await api.openVersionFile({ root, file });
+  if (!result.ok) {
+    notice(result.error || `could not open ${file}`, true);
+    return;
+  }
+  notice(result.opened === "zed" ? `Opened ${file} in Zed.` : `Opened ${file}.`);
 }
 
 function renderLaunchpad() {
