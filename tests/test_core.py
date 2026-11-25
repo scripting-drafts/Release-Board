@@ -100,6 +100,19 @@ class RepairTests(unittest.TestCase):
         self.assertIn("    - Fix two", entry)
         self.assertIn(" -- Test <test@example.invalid>  ", entry)
 
+    def test_changelog_entry_prefers_control_maintainer(self) -> None:
+        package = {
+            "source": "demo",
+            "distribution": "noble",
+            "urgency": "medium",
+            "maintainer": "Uploader <uploader@example.invalid>",
+            "control": {"maintainer": "Maintainer <maintainer@example.invalid>"},
+        }
+        entry = _changelog_entry(package, "1.2.4", [])
+        self.assertIn(
+            " -- Maintainer <maintainer@example.invalid>  ", entry)
+        self.assertNotIn("uploader@example.invalid", entry)
+
     def test_release_records_filter_package_base_and_event(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             ledger = Path(tmp) / "ledger.jsonl"

@@ -304,9 +304,11 @@ def _changelog_entry(
     source = package.get("source", "")
     distribution = package.get("distribution") or "jammy"
     urgency = package.get("urgency") or "medium"
-    maintainer = package.get("maintainer", "")
+    control = package.get("control") or {}
+    maintainer = control.get("maintainer") or package.get("maintainer", "")
     if not source or not maintainer:
-        raise ValueError("debian/changelog is missing Source or Maintainer")
+        raise ValueError(
+            "debian/control and debian/changelog are missing Source or Maintainer")
     stamp = format_datetime(datetime.now().astimezone())
     lines = [f"{source} ({new_base}) {distribution}; urgency={urgency}", ""]
     if subjects:

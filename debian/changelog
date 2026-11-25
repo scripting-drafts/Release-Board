@@ -1,3 +1,11 @@
+release-board (0.1.4) jammy; urgency=medium
+
+  * Generate release changelog trailers from the Debian control Maintainer
+    instead of copying the previous changelog trailer. Package contact and
+    uploader metadata now stay aligned across releases.
+
+ -- Gerard Sala <12766134+scripting-drafts@users.noreply.github.com>  Wed, 25 Nov 2026 22:20:00 +0100
+
 release-board (0.1.3) jammy; urgency=medium
 
   * Changes since the previous release:
