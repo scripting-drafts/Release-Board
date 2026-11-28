@@ -1,7 +1,7 @@
 Source: release-board
 Section: utils
 Priority: optional
-Maintainer: scripting-drafts <12766134+scripting-drafts@users.noreply.github.com>
+Maintainer: Gerard Sala <creative.gsp@gmail.com>
 Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
