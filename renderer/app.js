@@ -23,6 +23,8 @@ const state = {
   tagStatusLoading: {},
   gitRefreshing: false,
   userNavigated: false,
+  loading: [],
+  loadingTimer: null,
   timer: null,
   gitTimer: null,
   pipelineTimer: null,
@@ -97,6 +99,40 @@ function notice(message, error = false) {
       error ? 6500 : 4000
     );
   }
+}
+
+function renderLoading() {
+  const node = document.getElementById("loading");
+  if (!node) return;
+  const active = state.loading.length > 0;
+  node.classList.toggle("hidden", !active);
+  node.setAttribute("aria-busy", String(active));
+  const main = document.querySelector(".main");
+  if (main) main.setAttribute("aria-busy", String(active));
+  const text = document.getElementById("loading-text");
+  if (text) text.textContent = state.loading[state.loading.length - 1] || "Loading…";
+}
+
+function beginLoading(message = "Loading…") {
+  state.loading.push(message);
+  if (state.loading.length === 1) {
+    state.loadingTimer = setTimeout(() => {
+      state.loadingTimer = null;
+      renderLoading();
+    }, 150);
+  } else {
+    renderLoading();
+  }
+}
+
+function endLoading() {
+  if (!state.loading.length) return;
+  state.loading.pop();
+  if (!state.loading.length && state.loadingTimer) {
+    clearTimeout(state.loadingTimer);
+    state.loadingTimer = null;
+  }
+  renderLoading();
 }
 
 const STALE_TAG_RE = /release tag v\S+ does not point at HEAD/;
@@ -247,7 +283,9 @@ function renderOverview() {
   clear(node);
   const board = state.board;
   if (!board) {
-    node.append(h("div", "card muted", "No release data yet."));
+    if (!state.loading.length) {
+      node.append(h("div", "card muted", "No release data yet."));
+    }
     return;
   }
 
@@ -665,6 +703,7 @@ async function loadCompare(root, silent = false) {
   if (!silent) {
     state.compareLoading = true;
     state.compareError = "";
+    beginLoading();
     renderCompare();
   }
   try {
@@ -684,7 +723,10 @@ async function loadCompare(root, silent = false) {
     state.compareData = result.data;
     if (silent && before !== compareSignature(state.compareData)) shouldRender = true;
   } finally {
-    if (!silent) state.compareLoading = false;
+    if (!silent) {
+      state.compareLoading = false;
+      endLoading();
+    }
     if (shouldRender) renderCompare();
   }
 }
@@ -1028,6 +1070,7 @@ function tagActionFor(root = state.taskRoot) {
 async function previewResign(root) {
   if (!root || state.resignPreviewing || activeTask(root)) return;
   state.resignPreviewing = true;
+  beginLoading();
   notice("Checking tag re-sign…");
   try {
     let preview;
@@ -1066,6 +1109,7 @@ async function previewResign(root) {
     });
   } finally {
     state.resignPreviewing = false;
+    endLoading();
   }
 }
 
@@ -1101,6 +1145,7 @@ async function previewRepair({ root = state.taskRoot, auto = false } = {}) {
   if (!root || state.repairPreviewing || activeTask(root)) return;
   if (auto && dialogOpen()) return;
   state.repairPreviewing = true;
+  beginLoading();
   if (!auto) notice("Previewing tag repair…");
   try {
     const preview = await api.repairPreview({ root });
@@ -1128,6 +1173,7 @@ async function previewRepair({ root = state.taskRoot, auto = false } = {}) {
     });
   } finally {
     state.repairPreviewing = false;
+    endLoading();
   }
 }
 
@@ -1809,21 +1855,26 @@ async function refreshGitStatus() {
   }
 }
 
-async function refresh(withLaunchpad = false, forceConfig = false) {
-  const [boardResult, configResult] = await Promise.all([
-    api.board({ refresh: withLaunchpad }),
-    forceConfig ? api.config() : Promise.resolve({ ok: true, data: state.config }),
-  ]);
-  if (!boardResult.ok || !boardResult.data) {
-    notice(boardResult.error || "failed to load release state", true);
-    return;
+async function refresh(withLaunchpad = false, forceConfig = false, { loading = true } = {}) {
+  if (loading) beginLoading();
+  try {
+    const [boardResult, configResult] = await Promise.all([
+      api.board({ refresh: withLaunchpad }),
+      forceConfig ? api.config() : Promise.resolve({ ok: true, data: state.config }),
+    ]);
+    if (!boardResult.ok || !boardResult.data) {
+      notice(boardResult.error || "failed to load release state", true);
+      return;
+    }
+    state.board = boardResult.data;
+    if (configResult?.ok && configResult.data) state.config = configResult.data;
+    renderSidebar();
+    // Keep the Settings form intact while it is being edited. Navigating back
+    // to Settings, saving, or pressing Reload re-renders it explicitly.
+    if (state.view !== "settings") renderView(state.view);
+  } finally {
+    if (loading) endLoading();
   }
-  state.board = boardResult.data;
-  if (configResult?.ok && configResult.data) state.config = configResult.data;
-  renderSidebar();
-  // Keep the Settings form intact while it is being edited. Navigating back
-  // to Settings, saving, or pressing Reload re-renders it explicitly.
-  if (state.view !== "settings") renderView(state.view);
 }
 
 async function loadPipelineStatus(rerender = true) {
@@ -1923,11 +1974,20 @@ async function main() {
     loadPipelineStatus();
   });
 
-  const configResult = await api.config();
-  if (configResult.ok) state.config = configResult.data;
-  await refresh(false);
+  beginLoading();
+  renderLoading();
+  setView(state.userNavigated ? state.view : "overview");
+  try {
+    const configResult = await api.config();
+    if (configResult.ok) state.config = configResult.data;
+    await refresh(false, false, { loading: false });
+  } finally {
+    endLoading();
+  }
   state.timer = setInterval(() => {
-    if (!Object.values(state.tasks).some((task) => task.id)) refresh(false);
+    if (!Object.values(state.tasks).some((task) => task.id)) {
+      refresh(false, false, { loading: false });
+    }
   }, Math.max(15, Number(state.config?.refreshSeconds || 60)) * 1000);
   state.gitTimer = setInterval(refreshGitStatus, 5000);
   state.pipelineTimer = setInterval(() => {
